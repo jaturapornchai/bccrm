@@ -45,3 +45,4 @@ packages/database/prisma/migrations/dev.db*
 
 # Coverage
 coverage/
+.tools/
