@@ -43,6 +43,37 @@ interface TicketDetails {
 
 type TabType = "book" | "ticket" | "chat" | "profile";
 
+// Gentle audio chime for queue call notifications
+function playCallChime() {
+  try {
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(523.25, now); // C5
+    osc.frequency.setValueAtTime(659.25, now + 0.12); // E5
+    osc.frequency.setValueAtTime(783.99, now + 0.24); // G5
+    osc.frequency.setValueAtTime(1046.5, now + 0.36); // C6
+
+    gain.gain.setValueAtTime(0.25, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + 1.2);
+  } catch (e) {
+    console.debug("Audio chime not supported or blocked", e);
+  }
+}
+
 export default function App() {
   const [profile, setProfile] = useState<LiffProfile>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,7 +101,7 @@ export default function App() {
   >([
     {
       sender: "ai",
-      text: "สวัสดีค่ะ! น้องบีซี ผู้ช่วย AI (DeepSeek) ยินดีให้บริการค่ะ สอบถามข้อมูลบริการ คลินิก หรือเช็กคิวสดได้เลยนะคะ 😊",
+      text: "สวัสดีค่ะ! น้องบีซี ผู้ช่วย AI อัจฉริยะ (DeepSeek) ยินดีต้อนรับค่ะ\n\nสามารถสอบถามข้อมูลบริการ จองคิว หรือเช็กสถานะคิวสดได้ตลอด 24 ชั่วโมงเลยนะคะ ✨",
       time: new Date().toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }),
     },
   ]);
@@ -84,7 +115,6 @@ export default function App() {
       .then((p) => {
         setProfile(p);
         if (p?.userId) {
-          // Sync customer profile with API
           fetch(`${API}/api/customers/sync`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -158,6 +188,7 @@ export default function App() {
 
     socket.on("call", (data: { number: string; counterName: string }) => {
       if (currentTicket && currentTicket.ticket.number === data.number) {
+        playCallChime();
         setCallAlert(`🔔 ถึงคิวของคุณแล้ว! (${data.number}) กรุณาติดต่อที่ ${data.counterName}`);
         if (profile?.userId) loadActiveTicket(profile.userId);
       }
@@ -239,7 +270,7 @@ export default function App() {
         setCurrentTicket(null);
         setActiveTab("book");
       }
-    } catch (err) {
+    } catch {
       alert("ยกเลิกคิวไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
     }
   };
@@ -285,7 +316,7 @@ export default function App() {
         ...prev,
         {
           sender: "ai",
-          text: data.reply || "น้องบีซีได้รับข้อความแล้วค่ะ มีอะไรให้ช่วยเพิ่มเติมสอบถามได้เลยนะคะ",
+          text: data.reply || "น้องบีซีได้รับข้อความแล้วค่ะ มีข้อสงสัยสอบถามเพิ่มเติมได้เลยนะคะ",
           time: new Date().toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }),
           hasCard: Boolean(data.activeTicket),
         },
@@ -299,7 +330,7 @@ export default function App() {
         ...prev,
         {
           sender: "ai",
-          text: `ขออภัยค่ะ พอดีมีปัญหาชั่วคราว: ${msg}`,
+          text: `ขออภัยค่ะ ระบบขัดข้องชั่วคราว: ${msg}`,
           time: new Date().toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }),
         },
       ]);
@@ -319,8 +350,9 @@ export default function App() {
     return (
       <main style={styles.centerContainer}>
         <div style={styles.errorBox}>
-          <h3>⚠️ ไม่สามารถเปิด LIFF ได้</h3>
-          <p>{error}</p>
+          <div style={{ fontSize: 40, marginBottom: 8 }}>⚠️</div>
+          <h3 style={{ margin: "0 0 8px 0", fontSize: 18, fontWeight: 700 }}>ไม่สามารถเปิด LIFF ได้</h3>
+          <p style={{ margin: 0, fontSize: 13, color: "#64748B", lineHeight: 1.5 }}>{error}</p>
         </div>
       </main>
     );
@@ -329,9 +361,9 @@ export default function App() {
   if (!profile) {
     return (
       <main style={styles.centerContainer}>
-        <div style={{ textAlign: "center", color: "#666" }}>
+        <div style={{ textAlign: "center", color: "#64748B" }}>
           <div style={styles.spinner}></div>
-          <p style={{ marginTop: 12 }}>กำลังเชื่อมต่อ LINE...</p>
+          <p style={{ marginTop: 16, fontSize: 14, fontWeight: 500, letterSpacing: 0.5 }}>กำลังเชื่อมต่อ LINE Official Account...</p>
         </div>
       </main>
     );
@@ -339,26 +371,85 @@ export default function App() {
 
   const selectedService = services.find((s) => s.id === selectedServiceId);
 
+  // Queue journey step computation
+  const getQueueStep = (state?: string) => {
+    if (!state) return 0;
+    const s = state.toUpperCase();
+    if (s === "WAITING") return 2;
+    if (s === "CALLED" || s === "SERVING") return 3;
+    if (s === "DONE") return 4;
+    return 1;
+  };
+
+  const currentStep = getQueueStep(currentTicket?.ticket.state);
+
   return (
     <div style={styles.container}>
-      {/* Top Header */}
+      {/* Top Luxury Gradient Header */}
       <header style={styles.header}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={styles.logoBadge}>BCCRM</div>
-          <div>
-            <h1 style={styles.headerTitle}>คลินิกและบริการตัวอย่าง</h1>
-            <span style={styles.headerSubtitle}>📍 สาขาหลัก (Demo)</span>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={styles.brandIconWrap}>
+              <span style={{ fontSize: 18 }}>✦</span>
+            </div>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={styles.headerTitle}>BCCRM ELITE</span>
+                <span style={styles.verifiedBadge}>✓</span>
+              </div>
+              <div style={styles.headerSubtitle}>
+                <span style={styles.onlineDot}></span>
+                <span>สาขาหลัก (Demo) • พร้อมให้บริการ</span>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {profile.devMode && (
+              <span style={styles.devTag}>Dev</span>
+            )}
+            <button
+              onClick={() => setActiveTab("profile")}
+              style={styles.avatarButton}
+              title="ดูโปรไฟล์"
+            >
+              <img
+                src={profile.pictureUrl || "https://api.dicebear.com/7.x/bottts/svg?seed=user"}
+                alt={profile.displayName}
+                style={styles.headerAvatar}
+              />
+            </button>
           </div>
         </div>
-        {profile.devMode && (
-          <span style={styles.devTag}>โหมด Dev</span>
-        )}
+
+        {/* Greeting Banner */}
+        <div style={styles.greetingRow}>
+          <div>
+            <div style={{ fontSize: 12, color: "#94A3B8" }}>ยินดีต้อนรับ</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#FFFFFF" }}>{profile.displayName}</div>
+          </div>
+          {currentTicket && (
+            <button
+              style={styles.headerTicketPill}
+              onClick={() => setActiveTab("ticket")}
+            >
+              <span style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: "#06C755", display: "inline-block" }}></span>
+              <span>คิวของคุณ: <strong>{currentTicket.ticket.number}</strong></span>
+            </button>
+          )}
+        </div>
       </header>
 
       {/* Realtime Call Alert Modal / Toast */}
       {callAlert && (
         <div style={styles.callAlertBanner}>
-          <div>{callAlert}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 24 }}>🔔</span>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14 }}>แจ้งเตือนเรียกคิวสด!</div>
+              <div style={{ fontSize: 12, opacity: 0.9 }}>{callAlert}</div>
+            </div>
+          </div>
           <button style={styles.closeAlertBtn} onClick={() => setCallAlert(null)}>
             รับทราบ
           </button>
@@ -369,101 +460,156 @@ export default function App() {
       <main style={styles.content}>
         {/* ================= TAB 1: BOOK QUEUE ================= */}
         {activeTab === "book" && (
-          <section>
-            <div style={styles.card}>
-              <h2 style={styles.sectionTitle}>📋 รับบัตรคิวออนไลน์</h2>
-              <p style={styles.textMuted}>
-                ยินดีต้อนรับคุณ <strong>{profile.displayName}</strong> เลือกบริการที่ต้องการ
-              </p>
-
-              {currentTicket && (
-                <div style={styles.activeNotice}>
-                  <span>คุณมีคิวที่รออยู่แล้ว: <strong>{currentTicket.ticket.number}</strong></span>
-                  <button
-                    style={styles.linkButton}
-                    onClick={() => setActiveTab("ticket")}
-                  >
-                    ดูบัตรคิวสด →
-                  </button>
+          <section style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {/* Active Ticket Banner */}
+            {currentTicket && (
+              <div style={styles.activeNoticeCard} onClick={() => setActiveTab("ticket")}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={styles.activeNoticeIcon}>🎫</div>
+                  <div>
+                    <div style={{ fontSize: 12, color: "#047857", fontWeight: 600 }}>คุณมีคิวที่กำลังรออยู่</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: "#064E3B" }}>
+                      หมายเลข {currentTicket.ticket.number}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#059669" }}>
+                      รออีก {currentTicket.aheadCount} คิว (~{currentTicket.estimatedWaitMinutes} นาที)
+                    </div>
+                  </div>
                 </div>
-              )}
+                <div style={styles.activeNoticeArrow}>ดูบัตรคิวสด →</div>
+              </div>
+            )}
 
-              {/* Service Cards Selection */}
-              <div style={{ marginTop: 16 }}>
-                <label style={styles.label}>เลือกประเภทบริการ:</label>
-                <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
-                  {services.map((svc) => {
-                    const isSelected = svc.id === selectedServiceId;
-                    const isVip = svc.ticketPrefix === "V";
-                    return (
-                      <div
-                        key={svc.id}
-                        onClick={() => setSelectedServiceId(svc.id)}
-                        style={{
-                          ...styles.serviceItem,
-                          borderColor: isSelected ? "#06C755" : "#E2E8F0",
-                          backgroundColor: isSelected ? "#F0FDF4" : "#FFFFFF",
-                        }}
-                      >
-                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                          <span
-                            style={{
-                              ...styles.prefixBadge,
-                              backgroundColor: isVip ? "#7C3AED" : "#06C755",
-                            }}
-                          >
-                            {svc.ticketPrefix}
-                          </span>
-                          <div>
-                            <div style={{ fontWeight: 600, fontSize: 15, color: "#1E293B" }}>
+            {/* Clinic Info Hero Card */}
+            <div style={styles.heroCard}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <span style={styles.heroSubTag}>EXPRESS DIGITAL QUEUE</span>
+                  <h2 style={styles.heroTitle}>จองและรับบัตรคิวออนไลน์</h2>
+                  <p style={styles.heroDesc}>
+                    เลือกบริการที่ต้องการ เพื่อรับบัตรคิวสดผ่านมือถือ ไม่ต้องยืนรอคิวหน้าร้าน
+                  </p>
+                </div>
+                <div style={styles.heroDecoBadge}>
+                  <span>⚡</span>
+                </div>
+              </div>
+
+              <div style={styles.heroStatsGrid}>
+                <div style={styles.heroStatItem}>
+                  <div style={styles.heroStatValue}>~5-15</div>
+                  <div style={styles.heroStatLabel}>นาที / คิว</div>
+                </div>
+                <div style={styles.heroStatDivider}></div>
+                <div style={styles.heroStatItem}>
+                  <div style={styles.heroStatValue}>3</div>
+                  <div style={styles.heroStatLabel}>ช่องบริการเปิด</div>
+                </div>
+                <div style={styles.heroStatDivider}></div>
+                <div style={styles.heroStatItem}>
+                  <div style={styles.heroStatValue}>09:00-18:00</div>
+                  <div style={styles.heroStatLabel}>เวลาทำการ</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Service Selection List */}
+            <div style={styles.card}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                <h3 style={styles.cardSectionTitle}>
+                  <span style={styles.titleIcon}>🩺</span> เลือกประเภทบริการ
+                </h3>
+                <span style={{ fontSize: 12, color: "#64748B" }}>
+                  {services.length} รายการพร้อมบริการ
+                </span>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {services.map((svc) => {
+                  const isSelected = svc.id === selectedServiceId;
+                  const isVip = svc.ticketPrefix === "V";
+                  return (
+                    <div
+                      key={svc.id}
+                      onClick={() => setSelectedServiceId(svc.id)}
+                      style={{
+                        ...styles.serviceItem,
+                        ...(isSelected ? styles.serviceItemSelected : {}),
+                        ...(isVip ? styles.serviceItemVip : {}),
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                        <div
+                          style={{
+                            ...styles.prefixBadge,
+                            backgroundColor: isVip ? "#7C3AED" : isSelected ? "#06C755" : "#E2E8F0",
+                            color: isSelected || isVip ? "#FFFFFF" : "#475569",
+                          }}
+                        >
+                          {svc.ticketPrefix}
+                        </div>
+                        <div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontWeight: 700, fontSize: 15, color: "#0F172A" }}>
                               {svc.name}
-                            </div>
-                            <div style={{ fontSize: 12, color: "#64748B" }}>
-                              เวลารอเฉลี่ย ~{svc.avgServiceMinutes} นาที/คิว
-                            </div>
+                            </span>
+                            {isVip && <span style={styles.vipBadge}>VIP Priority</span>}
+                          </div>
+                          <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>
+                            ⏱ เวลารอเฉลี่ย ~{svc.avgServiceMinutes} นาที/คิว
                           </div>
                         </div>
-                        <input
-                          type="radio"
-                          name="service"
-                          checked={isSelected}
-                          onChange={() => setSelectedServiceId(svc.id)}
-                          style={{ accentColor: "#06C755", width: 18, height: 18 }}
-                        />
                       </div>
-                    );
-                  })}
-                </div>
+
+                      <div style={{ display: "flex", alignItems: "center" }}>
+                        <div
+                          style={{
+                            ...styles.radioIndicator,
+                            borderColor: isSelected ? "#06C755" : "#CBD5E1",
+                            backgroundColor: isSelected ? "#06C755" : "#FFFFFF",
+                          }}
+                        >
+                          {isSelected && <div style={styles.radioInnerDot}></div>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Phone input */}
-              <div style={{ marginTop: 16 }}>
-                <label style={styles.label}>เบอร์โทรศัพท์ (สำหรับแจ้งเตือน SMS สำรอง):</label>
-                <input
-                  type="tel"
-                  placeholder="เช่น 081-234-5678"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  style={styles.input}
-                />
+              <div style={{ marginTop: 20 }}>
+                <label style={styles.fieldLabel}>
+                  <span>เบอร์โทรศัพท์ (ทางเลือกสำหรับรับ SMS สำรอง)</span>
+                </label>
+                <div style={styles.inputWrap}>
+                  <span style={styles.inputIcon}>📞</span>
+                  <input
+                    type="tel"
+                    placeholder="เช่น 081-234-5678"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    style={styles.cleanInput}
+                  />
+                </div>
               </div>
 
-              {/* PDPA Consent */}
+              {/* PDPA Consent Box */}
               <div style={styles.consentBox}>
-                <label style={{ display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer" }}>
+                <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
                   <input
                     type="checkbox"
                     checked={pdpaConsent}
                     onChange={(e) => setPdpaConsent(e.target.checked)}
-                    style={{ marginTop: 3, accentColor: "#06C755" }}
+                    style={styles.checkbox}
                   />
                   <span style={{ fontSize: 12, color: "#475569", lineHeight: 1.5 }}>
-                    ข้าพเจ้ายินยอมให้ระบบ BCCRM เก็บรวบรวมและใช้ข้อมูล (LINE Profile และเบอร์โทร) เพื่อวัตถุประสงค์ในการจัดลำดับคิวและแจ้งเตือนสถานะการรับบริการตามนโยบายคุ้มครองข้อมูลส่วนบุคคล (PDPA)
+                    ข้าพเจ้ายินยอมให้ระบบ BCCRM จัดเก็บและประมวลผลข้อมูลส่วนบุคคล (LINE Profile และเบอร์ติดต่อ) เพื่อการจัดคิวและบริการตามพระราชบัญญัติคุ้มครองข้อมูลส่วนบุคคล (PDPA)
                   </span>
                 </label>
               </div>
 
-              {/* Submit Button */}
+              {/* Booking CTA Button */}
               <button
                 onClick={handleBooking}
                 disabled={isSubmitting || !selectedService}
@@ -472,7 +618,15 @@ export default function App() {
                   opacity: isSubmitting || !selectedService ? 0.6 : 1,
                 }}
               >
-                {isSubmitting ? "กำลังออกเลขคิว..." : `ยืนยันรับบัตรคิว ${selectedService ? `(${selectedService.name})` : ""}`}
+                {isSubmitting ? (
+                  <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                    <span style={styles.miniSpinner}></span> กำลังออกบัตรคิว...
+                  </span>
+                ) : (
+                  <span>
+                    ยืนยันรับบัตรคิว {selectedService ? `• ${selectedService.name}` : ""}
+                  </span>
+                )}
               </button>
             </div>
           </section>
@@ -480,119 +634,187 @@ export default function App() {
 
         {/* ================= TAB 2: LIVE TICKET ================= */}
         {activeTab === "ticket" && (
-          <section>
+          <section style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {loadingTicket && !currentTicket ? (
-              <div style={{ padding: 40, textAlign: "center", color: "#666" }}>
+              <div style={styles.emptyCard}>
                 <div style={styles.spinner}></div>
-                <p style={{ marginTop: 12 }}>กำลังโหลดข้อมูลบัตรคิวสด...</p>
+                <p style={{ marginTop: 16, fontSize: 14, color: "#64748B" }}>กำลังโหลดข้อมูลบัตรคิวสด...</p>
               </div>
             ) : !currentTicket ? (
               <div style={styles.emptyCard}>
-                <div style={{ fontSize: 48 }}>🎫</div>
-                <h3 style={{ marginTop: 12, fontSize: 18, color: "#1E293B" }}>ยังไม่มีคิวที่กำลังรออยู่</h3>
-                <p style={{ color: "#64748B", fontSize: 14, marginTop: 4 }}>
-                  คุณยังไม่ได้กดรับบัตรคิวสำหรับวันนี้
+                <div style={styles.emptyIconWrap}>🎫</div>
+                <h3 style={{ marginTop: 16, fontSize: 18, fontWeight: 700, color: "#0F172A" }}>
+                  ยังไม่มีคิวที่กำลังรออยู่
+                </h3>
+                <p style={{ color: "#64748B", fontSize: 13, marginTop: 6, lineHeight: 1.5 }}>
+                  คุณยังไม่ได้กดรับบัตรคิวสำหรับวันนี้ สามารถเลือกบริการและรับคิวได้ทันที
                 </p>
                 <button
-                  style={{ ...styles.primaryButton, marginTop: 20, maxWidth: 200 }}
+                  style={{ ...styles.primaryButton, marginTop: 20, maxWidth: 220, alignSelf: "center" }}
                   onClick={() => setActiveTab("book")}
                 >
-                  + รับบัตรคิวเลย
+                  + รับบัตรคิวออนไลน์
                 </button>
               </div>
             ) : (
               <div>
-                {/* Live Ticket Visual Card */}
-                <div style={styles.ticketCard}>
-                  {/* Top Bar of Ticket */}
-                  <div style={styles.ticketCardHeader}>
-                    <div>
-                      <span style={styles.ticketBranchLabel}>BCCRM DEMO BRANCH</span>
-                      <div style={styles.ticketServiceLabel}>
-                        {currentTicket.service?.name ?? "บริการทั่วไป"}
+                {/* Luxury Boarding-Pass Ticket Visual Card */}
+                <div style={styles.boardingPassTicket}>
+                  {/* Top Section */}
+                  <div style={styles.ticketTopSection}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      <div>
+                        <div style={styles.ticketOrgName}>BCCRM ELITE CLINIC</div>
+                        <div style={styles.ticketServiceName}>
+                          {currentTicket.service?.name ?? "บริการทั่วไป"}
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          ...styles.ticketStatusPill,
+                          backgroundColor:
+                            currentTicket.ticket.state === "CALLED"
+                              ? "#EF4444"
+                              : currentTicket.ticket.state === "SERVING"
+                              ? "#2563EB"
+                              : currentTicket.ticket.state === "DONE"
+                              ? "#10B981"
+                              : "#F59E0B",
+                        }}
+                      >
+                        {currentTicket.ticket.state === "CALLED"
+                          ? "📢 ถึงคิวแล้ว!"
+                          : currentTicket.ticket.state === "SERVING"
+                          ? "👨‍⚕️ กำลังรับบริการ"
+                          : currentTicket.ticket.state === "DONE"
+                          ? "✓ เสร็จสิ้น"
+                          : "⏳ กำลังรอคิว"}
                       </div>
                     </div>
-                    <span
-                      style={{
-                        ...styles.statusPill,
-                        backgroundColor:
-                          currentTicket.ticket.state === "CALLED"
-                            ? "#EF4444"
-                            : currentTicket.ticket.state === "SERVING"
-                            ? "#3B82F6"
-                            : currentTicket.ticket.state === "DONE"
-                            ? "#10B981"
-                            : "#F59E0B",
-                      }}
-                    >
-                      {currentTicket.ticket.state === "CALLED"
-                        ? "📢 ถึงคิวแล้ว!"
-                        : currentTicket.ticket.state === "SERVING"
-                        ? "กำลังรับบริการ"
-                        : currentTicket.ticket.state === "DONE"
-                        ? "เสร็จสิ้น"
-                        : "⏳ กำลังรอคิว"}
-                    </span>
-                  </div>
 
-                  {/* Big Ticket Number */}
-                  <div style={styles.ticketNumberSection}>
-                    <div style={styles.ticketNumberText}>{currentTicket.ticket.number}</div>
-                    <div style={{ fontSize: 13, color: "#64748B", marginTop: 4 }}>
-                      เลขคิวของคุณ
+                    {/* Big Ticket Number */}
+                    <div style={styles.ticketNumberSection}>
+                      <div style={styles.ticketNumberSubLabel}>หมายเลขคิวของคุณ</div>
+                      <div style={styles.ticketNumberDisplay}>{currentTicket.ticket.number}</div>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, marginTop: 4 }}>
+                        <span style={styles.livePulseDot}></span>
+                        <span style={{ fontSize: 11, color: "#059669", fontWeight: 600 }}>
+                          เชื่อมต่อระบบสด Realtime
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Twin Metrics Glass Box */}
+                    <div style={styles.twinMetricsRow}>
+                      <div style={styles.twinMetricItem}>
+                        <div style={styles.twinMetricValue}>{currentTicket.aheadCount}</div>
+                        <div style={styles.twinMetricLabel}>คิวข้างหน้า</div>
+                      </div>
+                      <div style={styles.twinMetricDivider}></div>
+                      <div style={styles.twinMetricItem}>
+                        <div style={styles.twinMetricValue}>~{currentTicket.estimatedWaitMinutes}</div>
+                        <div style={styles.twinMetricLabel}>เวลารอประมาณ (นาที)</div>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Ahead count & Estimated time metrics */}
-                  <div style={styles.ticketMetricsRow}>
-                    <div style={styles.metricBox}>
-                      <div style={styles.metricVal}>{currentTicket.aheadCount}</div>
-                      <div style={styles.metricLabel}>คิวข้างหน้า</div>
-                    </div>
-                    <div style={styles.metricDivider}></div>
-                    <div style={styles.metricBox}>
-                      <div style={styles.metricVal}>~{currentTicket.estimatedWaitMinutes}</div>
-                      <div style={styles.metricLabel}>เวลารอประมาณ (นาที)</div>
-                    </div>
+                  {/* Perforated Divider with Left/Right Notches */}
+                  <div style={styles.ticketPerforatedRow}>
+                    <div style={styles.notchLeft}></div>
+                    <div style={styles.perforatedLine}></div>
+                    <div style={styles.notchRight}></div>
                   </div>
 
-                  {/* Counter Call Notice if CALLED */}
-                  {currentTicket.ticket.state === "CALLED" && (
-                    <div style={styles.calledNotificationBox}>
-                      <div style={{ fontSize: 20 }}>📢</div>
-                      <div>
-                        <strong>กรุณาติดต่อที่เคาน์เตอร์บริการ</strong>
-                        <div style={{ fontSize: 13, color: "#991B1B" }}>
-                          {currentTicket.ticket.counterId || "เคาน์เตอร์ 1"}
+                  {/* Bottom Section */}
+                  <div style={styles.ticketBottomSection}>
+                    {/* Called Alert Box if Called */}
+                    {currentTicket.ticket.state === "CALLED" && (
+                      <div style={styles.calledBannerBox}>
+                        <div style={{ fontSize: 24 }}>📢</div>
+                        <div>
+                          <div style={{ fontWeight: 800, fontSize: 15, color: "#991B1B" }}>
+                            ถึงคิวของคุณแล้ว!
+                          </div>
+                          <div style={{ fontSize: 13, color: "#B91C1C", marginTop: 2 }}>
+                            กรุณาติดต่อที่: <strong>{currentTicket.ticket.counterId || "เคาน์เตอร์ 1"}</strong>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 4-Step Queue Journey Tracker */}
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 10 }}>
+                        เส้นทางการรับบริการ (Queue Journey)
+                      </div>
+                      <div style={styles.journeyTrack}>
+                        <div style={styles.journeyStep}>
+                          <div style={{ ...styles.journeyDot, ...(currentStep >= 1 ? styles.journeyDotActive : {}) }}>
+                            {currentStep > 1 ? "✓" : "1"}
+                          </div>
+                          <span style={styles.journeyLabel}>ออกบัตร</span>
+                        </div>
+                        <div style={{ ...styles.journeyLine, ...(currentStep >= 2 ? styles.journeyLineActive : {}) }}></div>
+                        <div style={styles.journeyStep}>
+                          <div style={{ ...styles.journeyDot, ...(currentStep >= 2 ? styles.journeyDotActive : {}) }}>
+                            {currentStep > 2 ? "✓" : "2"}
+                          </div>
+                          <span style={styles.journeyLabel}>รอเรียก</span>
+                        </div>
+                        <div style={{ ...styles.journeyLine, ...(currentStep >= 3 ? styles.journeyLineActive : {}) }}></div>
+                        <div style={styles.journeyStep}>
+                          <div style={{ ...styles.journeyDot, ...(currentStep >= 3 ? styles.journeyDotActive : {}) }}>
+                            {currentStep > 3 ? "✓" : "3"}
+                          </div>
+                          <span style={styles.journeyLabel}>รับบริการ</span>
+                        </div>
+                        <div style={{ ...styles.journeyLine, ...(currentStep >= 4 ? styles.journeyLineActive : {}) }}></div>
+                        <div style={styles.journeyStep}>
+                          <div style={{ ...styles.journeyDot, ...(currentStep >= 4 ? styles.journeyDotActive : {}) }}>
+                            4
+                          </div>
+                          <span style={styles.journeyLabel}>เสร็จสิ้น</span>
                         </div>
                       </div>
                     </div>
-                  )}
 
-                  {/* Realtime Live Indicator */}
-                  <div style={styles.liveIndicatorRow}>
-                    <span style={styles.liveDot}></span>
-                    <span style={{ fontSize: 12, color: "#15803D", fontWeight: 500 }}>
-                      เชื่อมต่อสดผ่าน Socket.io (อัปเดตอัตโนมัติ)
-                    </span>
-                  </div>
+                    {/* QR Code Scan Placeholder for Counter */}
+                    <div style={styles.ticketMetaRow}>
+                      <div>
+                        <div style={{ fontSize: 11, color: "#94A3B8" }}>รหัสตั๋วระบบ</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#334155", fontFamily: "monospace" }}>
+                          {currentTicket.ticket.id.slice(0, 8)}...
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, color: "#94A3B8" }}>เวลาออกคิว</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#334155" }}>
+                          {new Date(currentTicket.ticket.createdAt).toLocaleTimeString("th-TH", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })} น.
+                        </div>
+                      </div>
+                    </div>
 
-                  {/* Ticket Action Buttons */}
-                  <div style={{ marginTop: 20, display: "flex", gap: 10 }}>
-                    <button
-                      onClick={() => profile && loadActiveTicket(profile.userId)}
-                      style={styles.secondaryButton}
-                    >
-                      🔄 รีเฟรชสถานะ
-                    </button>
-                    {currentTicket.ticket.state === "WAITING" && (
+                    {/* Actions */}
+                    <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
                       <button
-                        onClick={handleCancelTicket}
-                        style={styles.cancelButton}
+                        onClick={() => profile && loadActiveTicket(profile.userId)}
+                        style={styles.refreshBtn}
                       >
-                        ยกเลิกคิวนี้
+                        🔄 อัปเดตสถานะสด
                       </button>
-                    )}
+                      {currentTicket.ticket.state === "WAITING" && (
+                        <button
+                          onClick={handleCancelTicket}
+                          style={styles.cancelTicketBtn}
+                        >
+                          ยกเลิกคิว
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -602,95 +824,116 @@ export default function App() {
 
         {/* ================= TAB 3: CUSTOMER PROFILE ================= */}
         {activeTab === "profile" && (
-          <section>
-            <div style={styles.card}>
-              <h2 style={styles.sectionTitle}>👤 ข้อมูลสมาชิก & ประวัติ</h2>
+          <section style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {/* Digital Membership Card */}
+            <div style={styles.membershipCard}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <span style={styles.cardBrandBadge}>BCCRM ELITE MEMBER</span>
+                  <div style={styles.cardMemberTier}>PREMIUM CLIENT</div>
+                </div>
+                <div style={styles.chipIcon}>💳</div>
+              </div>
 
-              {/* Profile Card */}
-              <div style={styles.profileHeaderBox}>
+              <div style={{ display: "flex", alignItems: "center", gap: 14, margin: "20px 0 16px 0" }}>
                 <img
                   src={profile.pictureUrl || "https://api.dicebear.com/7.x/bottts/svg?seed=user"}
-                  alt="Profile"
-                  style={styles.avatarImg}
+                  alt={profile.displayName}
+                  style={styles.memberAvatar}
                 />
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: 17, color: "#1E293B" }}>
-                    {profile.displayName}
-                  </div>
-                  <div style={{ fontSize: 12, color: "#64748B", marginTop: 2 }}>
-                    LINE User ID: {profile.userId}
-                  </div>
-                  <span style={styles.consentBadge}>✓ ยินยอม PDPA แล้ว</span>
+                  <div style={styles.memberName}>{profile.displayName}</div>
+                  <div style={styles.memberUid}>ID: {profile.userId}</div>
+                  <div style={styles.memberStatusBadge}>✓ ยืนยันตัวตนผ่าน LINE แล้ว</div>
                 </div>
               </div>
 
-              {/* Dev mode profile switcher */}
-              {profile.devMode && (
-                <div style={styles.devBox}>
-                  <div style={{ fontWeight: 600, fontSize: 13, color: "#92400E", marginBottom: 8 }}>
-                    🛠 ตัวสลับบัญชีทดสอบ (Dev Mode):
-                  </div>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <button
-                      style={styles.devSwitchBtn}
-                      onClick={() => switchDevUser("Udev001", "คุณสมชาย (ลูกค้าทั่วไป)")}
-                    >
-                      ลูกค้า 1 (ทั่วไป)
-                    </button>
-                    <button
-                      style={styles.devSwitchBtn}
-                      onClick={() => switchDevUser("Uvip888", "คุณหญิงวิไล (ลูกค้า VIP)")}
-                    >
-                      ลูกค้า 2 (VIP)
-                    </button>
-                    <button
-                      style={styles.devSwitchBtn}
-                      onClick={() => switchDevUser("Udev003", "คุณอนุชา (คิวใหม่)")}
-                    >
-                      ลูกค้า 3
-                    </button>
-                  </div>
+              <div style={styles.memberCardFooter}>
+                <div>
+                  <div style={{ fontSize: 10, color: "#94A3B8" }}>สาขาประจำ</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#FFFFFF" }}>สาขาหลัก (Demo)</div>
                 </div>
-              )}
+                <div>
+                  <div style={{ fontSize: 10, color: "#94A3B8" }}>ความยินยอม PDPA</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#10B981" }}>ยินยอมแล้ว (Active)</div>
+                </div>
+              </div>
+            </div>
 
-              {/* Info summary */}
-              <div style={{ marginTop: 20 }}>
-                <h4 style={{ fontSize: 14, color: "#334155", marginBottom: 8 }}>สิทธิประโยชน์และการใช้งาน</h4>
-                <div style={styles.infoRow}>
-                  <span>ระบบแจ้งเตือน LINE</span>
-                  <strong style={{ color: "#06C755" }}>เปิดใช้งาน</strong>
+            {/* Dev Switcher if in Dev Mode */}
+            {profile.devMode && (
+              <div style={styles.devCard}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#B45309", marginBottom: 8 }}>
+                  🛠 ตัวสลับบัญชีทดสอบ (Dev Mode):
                 </div>
-                <div style={styles.infoRow}>
-                  <span>สถานะความยินยอมข้อมูล</span>
-                  <strong style={{ color: "#06C755" }}>PDPA Version 1.0</strong>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    style={styles.devSwitchBtn}
+                    onClick={() => switchDevUser("Udev001", "คุณสมชาย (ทั่วไป)")}
+                  >
+                    ลูกค้า 1 (ทั่วไป)
+                  </button>
+                  <button
+                    style={styles.devSwitchBtn}
+                    onClick={() => switchDevUser("Uvip888", "คุณหญิงวิไล (VIP)")}
+                  >
+                    ลูกค้า 2 (VIP)
+                  </button>
+                  <button
+                    style={styles.devSwitchBtn}
+                    onClick={() => switchDevUser("Udev003", "คุณอนุชา (คิวใหม่)")}
+                  >
+                    ลูกค้า 3
+                  </button>
                 </div>
-                <div style={styles.infoRow}>
-                  <span>สาขาที่ใช้บริการบ่อย</span>
-                  <strong>สาขาหลัก (Demo)</strong>
+              </div>
+            )}
+
+            {/* Quick Actions / Preferences */}
+            <div style={styles.card}>
+              <h3 style={styles.cardSectionTitle}>⚙️ การตั้งค่าและสิทธิ์ของฉัน</h3>
+              <div style={styles.settingsRow}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 14, color: "#0F172A" }}>การแจ้งเตือนเสียงเรียกคิว</div>
+                  <div style={{ fontSize: 12, color: "#64748B" }}>เล่นเสียง Chime อัตโนมัติเมื่อถึงคิว</div>
                 </div>
+                <button
+                  style={styles.testSoundBtn}
+                  onClick={() => playCallChime()}
+                >
+                  🔊 ทดสอบเสียง
+                </button>
+              </div>
+
+              <div style={styles.settingsRow}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 14, color: "#0F172A" }}>นโยบายคุ้มครองข้อมูล (PDPA)</div>
+                  <div style={{ fontSize: 12, color: "#64748B" }}>ยินยอมการเก็บข้อมูลเพื่อจัดคิว</div>
+                </div>
+                <span style={{ fontSize: 12, color: "#059669", fontWeight: 700 }}>เวอร์ชัน 1.0</span>
               </div>
             </div>
           </section>
         )}
 
-        {/* TAB: AI CHAT (DEEPSEEK) */}
+        {/* ================= TAB 4: AI CHAT (DEEPSEEK) ================= */}
         {activeTab === "chat" && (
           <section style={styles.chatSection}>
-            {/* Assistant Info Banner */}
+            {/* Assistant Banner */}
             <div style={styles.chatBotHeader}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div style={styles.chatBotAvatar}>🤖</div>
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <strong style={{ fontSize: 14, color: "#0F172A" }}>น้องบีซี AI Assistant</strong>
-                    <span style={styles.aiOnlineDot}></span>
+                    <span style={styles.onlineDot}></span>
                   </div>
-                  <span style={{ fontSize: 11, color: "#64748B" }}>
-                    DeepSeek AI • ผู้ช่วยอัจฉริยะ 24 ชม.
-                  </span>
+                  <div style={{ fontSize: 11, color: "#64748B" }}>
+                    DeepSeek AI • พร้อมตอบคำถามและเช็กคิวสด 24 ชม.
+                  </div>
                 </div>
               </div>
-              <span style={styles.deepseekBadge}>DeepSeek</span>
+              <span style={styles.aiBadge}>DeepSeek</span>
             </div>
 
             {/* Quick Prompt Chips */}
@@ -735,51 +978,25 @@ export default function App() {
                     justifyContent: msg.sender === "user" ? "flex-end" : "flex-start",
                     marginBottom: 12,
                     alignItems: "flex-end",
-                    gap: 6,
+                    gap: 8,
                   }}
                 >
                   {msg.sender === "ai" && <div style={styles.msgAvatar}>🤖</div>}
-                  <div style={{ maxWidth: "78%" }}>
+                  <div style={{ maxWidth: "80%" }}>
                     <div
                       style={{
                         ...(msg.sender === "user" ? styles.userBubble : styles.aiBubble),
                       }}
                     >
-                      <p style={{ margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.45 }}>{msg.text}</p>
+                      <p style={{ margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{msg.text}</p>
                       {msg.hasCard && currentTicket && (
                         <div style={styles.chatTicketCard}>
-                          <div
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "center",
-                            }}
-                          >
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                             <span style={{ fontSize: 11, color: "#64748B" }}>บัตรคิวของคุณ</span>
-                            <span
-                              style={{
-                                fontSize: 11,
-                                fontWeight: 700,
-                                color: "#06C755",
-                                backgroundColor: "#DCFCE7",
-                                padding: "2px 6px",
-                                borderRadius: 4,
-                              }}
-                            >
-                              {currentTicket.ticket.state}
-                            </span>
+                            <span style={styles.chatTicketBadge}>{currentTicket.ticket.state}</span>
                           </div>
-                          <div
-                            style={{
-                              fontSize: 26,
-                              fontWeight: 900,
-                              color: "#06C755",
-                              margin: "4px 0",
-                            }}
-                          >
-                            {currentTicket.ticket.number}
-                          </div>
-                          <div style={{ fontSize: 12, color: "#334155", marginBottom: 6 }}>
+                          <div style={styles.chatTicketNumber}>{currentTicket.ticket.number}</div>
+                          <div style={{ fontSize: 12, color: "#334155", marginBottom: 8 }}>
                             รออีก {currentTicket.aheadCount} คิว (~{currentTicket.estimatedWaitMinutes} นาที)
                           </div>
                           <button
@@ -796,7 +1013,7 @@ export default function App() {
                       style={{
                         fontSize: 10,
                         color: "#94A3B8",
-                        marginTop: 2,
+                        marginTop: 3,
                         textAlign: msg.sender === "user" ? "right" : "left",
                         paddingLeft: msg.sender === "ai" ? 4 : 0,
                         paddingRight: msg.sender === "user" ? 4 : 0,
@@ -809,7 +1026,7 @@ export default function App() {
               ))}
 
               {isAiTyping && (
-                <div style={{ display: "flex", alignItems: "flex-end", gap: 6, marginBottom: 12 }}>
+                <div style={{ display: "flex", alignItems: "flex-end", gap: 8, marginBottom: 12 }}>
                   <div style={styles.msgAvatar}>🤖</div>
                   <div style={styles.typingBubble}>
                     <span style={styles.typingDot}></span>
@@ -824,7 +1041,7 @@ export default function App() {
               <div ref={chatMessagesEndRef} />
             </div>
 
-            {/* Chat Input Bar */}
+            {/* Chat Input Row */}
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -855,28 +1072,28 @@ export default function App() {
         )}
       </main>
 
-      {/* Bottom Navigation Bar */}
-      <nav style={styles.bottomNav}>
+      {/* Floating Frosted Glass Bottom Navigation */}
+      <nav style={styles.floatingBottomNav}>
         <button
           onClick={() => setActiveTab("book")}
           style={{
-            ...styles.navBtn,
-            color: activeTab === "book" ? "#06C755" : "#94A3B8",
+            ...styles.navPillBtn,
+            ...(activeTab === "book" ? styles.navPillBtnActive : {}),
           }}
         >
-          <span style={{ fontSize: 20 }}>📋</span>
+          <span style={{ fontSize: 18 }}>📋</span>
           <span style={{ fontSize: 11, fontWeight: activeTab === "book" ? 700 : 500 }}>จองคิว</span>
         </button>
 
         <button
           onClick={() => setActiveTab("ticket")}
           style={{
-            ...styles.navBtn,
-            color: activeTab === "ticket" ? "#06C755" : "#94A3B8",
+            ...styles.navPillBtn,
+            ...(activeTab === "ticket" ? styles.navPillBtnActive : {}),
             position: "relative",
           }}
         >
-          <span style={{ fontSize: 20 }}>🎫</span>
+          <span style={{ fontSize: 18 }}>🎫</span>
           <span style={{ fontSize: 11, fontWeight: activeTab === "ticket" ? 700 : 500 }}>
             บัตรคิว
           </span>
@@ -886,11 +1103,11 @@ export default function App() {
         <button
           onClick={() => setActiveTab("chat")}
           style={{
-            ...styles.navBtn,
-            color: activeTab === "chat" ? "#06C755" : "#94A3B8",
+            ...styles.navPillBtn,
+            ...(activeTab === "chat" ? styles.navPillBtnActive : {}),
           }}
         >
-          <span style={{ fontSize: 20 }}>💬</span>
+          <span style={{ fontSize: 18 }}>💬</span>
           <span style={{ fontSize: 11, fontWeight: activeTab === "chat" ? 700 : 500 }}>
             คุยกับ AI
           </span>
@@ -899,11 +1116,11 @@ export default function App() {
         <button
           onClick={() => setActiveTab("profile")}
           style={{
-            ...styles.navBtn,
-            color: activeTab === "profile" ? "#06C755" : "#94A3B8",
+            ...styles.navPillBtn,
+            ...(activeTab === "profile" ? styles.navPillBtnActive : {}),
           }}
         >
-          <span style={{ fontSize: 20 }}>👤</span>
+          <span style={{ fontSize: 18 }}>👤</span>
           <span style={{ fontSize: 11, fontWeight: activeTab === "profile" ? 700 : 500 }}>
             ข้อมูล
           </span>
@@ -913,449 +1130,711 @@ export default function App() {
   );
 }
 
-// Inline Styles for clean, modern mobile web app presentation
+// Inline Luxury Styles
 const styles: Record<string, React.CSSProperties> = {
   container: {
     maxWidth: 480,
     margin: "0 auto",
     minHeight: "100vh",
     backgroundColor: "#F8FAFC",
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Sarabun', Roboto, sans-serif",
+    fontFamily: "'Prompt', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif",
     display: "flex",
     flexDirection: "column",
     position: "relative",
-    paddingBottom: 72,
+    paddingBottom: 90,
   },
   header: {
-    backgroundColor: "#FFFFFF",
-    padding: "16px 20px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderBottom: "1px solid #E2E8F0",
+    background: "linear-gradient(135deg, #0F172A 0%, #1E293B 100%)",
+    padding: "16px 20px 20px 20px",
+    color: "#FFFFFF",
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    boxShadow: "0 10px 25px -5px rgba(15, 23, 42, 0.2)",
     position: "sticky",
     top: 0,
     zIndex: 10,
   },
-  logoBadge: {
-    backgroundColor: "#06C755",
+  brandIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    background: "linear-gradient(135deg, #06C755 0%, #059669 100%)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     color: "#FFFFFF",
-    fontWeight: 800,
-    fontSize: 14,
-    padding: "6px 10px",
-    borderRadius: 8,
-    letterSpacing: 0.5,
+    boxShadow: "0 4px 10px rgba(6, 199, 85, 0.3)",
   },
   headerTitle: {
-    fontSize: 15,
-    fontWeight: 700,
-    color: "#0F172A",
-    margin: 0,
+    fontSize: 16,
+    fontWeight: 800,
+    color: "#FFFFFF",
+    letterSpacing: 0.5,
+  },
+  verifiedBadge: {
+    fontSize: 11,
+    backgroundColor: "#06C755",
+    color: "#FFFFFF",
+    borderRadius: "50%",
+    width: 15,
+    height: 15,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: 800,
   },
   headerSubtitle: {
-    fontSize: 12,
-    color: "#64748B",
+    fontSize: 11,
+    color: "#94A3B8",
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 2,
+  },
+  onlineDot: {
+    width: 6,
+    height: 6,
+    borderRadius: "50%",
+    backgroundColor: "#10B981",
+    display: "inline-block",
   },
   devTag: {
-    backgroundColor: "#FEF3C7",
-    color: "#92400E",
-    fontSize: 11,
-    fontWeight: 600,
+    backgroundColor: "rgba(245, 158, 11, 0.2)",
+    border: "1px solid rgba(245, 158, 11, 0.4)",
+    color: "#FBBF24",
+    fontSize: 10,
+    fontWeight: 700,
     padding: "3px 8px",
     borderRadius: 12,
+  },
+  avatarButton: {
+    background: "none",
+    border: "none",
+    padding: 0,
+    cursor: "pointer",
+  },
+  headerAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: "50%",
+    border: "2px solid rgba(255, 255, 255, 0.2)",
+    objectFit: "cover",
+  },
+  greetingRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 14,
+    paddingTop: 12,
+    borderTop: "1px solid rgba(255, 255, 255, 0.08)",
+  },
+  headerTicketPill: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(6, 199, 85, 0.15)",
+    border: "1px solid rgba(6, 199, 85, 0.4)",
+    color: "#4ADE80",
+    padding: "6px 12px",
+    borderRadius: 20,
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: "pointer",
   },
   content: {
     padding: 16,
     flex: 1,
   },
-  card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 20,
-    boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-    border: "1px solid #F1F5F9",
-  },
-  emptyCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 32,
-    textAlign: "center",
-    boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-    border: "1px solid #F1F5F9",
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 700,
-    color: "#0F172A",
-    margin: "0 0 4px 0",
-  },
-  textMuted: {
-    fontSize: 13,
-    color: "#64748B",
-    margin: "0 0 16px 0",
-  },
-  activeNotice: {
-    backgroundColor: "#EFF6FF",
-    border: "1px solid #BFDBFE",
-    padding: "10px 14px",
-    borderRadius: 10,
+  activeNoticeCard: {
+    background: "linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%)",
+    border: "1px solid #A7F3D0",
+    borderRadius: 18,
+    padding: "14px 16px",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    fontSize: 13,
-    color: "#1E40AF",
-    marginBottom: 16,
-  },
-  linkButton: {
-    background: "none",
-    border: "none",
-    color: "#2563EB",
-    fontWeight: 600,
-    fontSize: 13,
     cursor: "pointer",
-    padding: 0,
+    boxShadow: "0 4px 12px rgba(6, 199, 85, 0.08)",
   },
-  label: {
+  activeNoticeIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 22,
+    boxShadow: "0 2px 6px rgba(6, 199, 85, 0.15)",
+  },
+  activeNoticeArrow: {
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#059669",
+  },
+  heroCard: {
+    background: "linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)",
+    borderRadius: 20,
+    padding: 20,
+    border: "1px solid #E2E8F0",
+    boxShadow: "0 4px 14px rgba(15, 23, 42, 0.04)",
+  },
+  heroSubTag: {
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: 1,
+    color: "#059669",
+    textTransform: "uppercase",
+  },
+  heroTitle: {
+    fontSize: 18,
+    fontWeight: 800,
+    color: "#0F172A",
+    margin: "4px 0 6px 0",
+  },
+  heroDesc: {
     fontSize: 13,
-    fontWeight: 600,
-    color: "#334155",
-    display: "block",
+    color: "#64748B",
+    lineHeight: 1.5,
+    margin: 0,
+  },
+  heroDecoBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: "#F0FDF4",
+    border: "1px solid #DCFCE7",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 18,
+  },
+  heroStatsGrid: {
+    display: "flex",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+    borderRadius: 14,
+    padding: "10px 12px",
+    marginTop: 14,
+    border: "1px solid #F1F5F9",
+  },
+  heroStatItem: {
+    flex: 1,
+    textAlign: "center",
+  },
+  heroStatValue: {
+    fontSize: 14,
+    fontWeight: 800,
+    color: "#0F172A",
+  },
+  heroStatLabel: {
+    fontSize: 10,
+    color: "#64748B",
+    marginTop: 2,
+  },
+  heroStatDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: "#E2E8F0",
+  },
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 20,
+    border: "1px solid #E2E8F0",
+    boxShadow: "0 4px 14px rgba(15, 23, 42, 0.03)",
+  },
+  cardSectionTitle: {
+    fontSize: 16,
+    fontWeight: 700,
+    color: "#0F172A",
+    margin: 0,
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+  },
+  titleIcon: {
+    fontSize: 16,
   },
   serviceItem: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: "12px 14px",
-    borderRadius: 12,
+    padding: "14px 16px",
+    borderRadius: 16,
     border: "1.5px solid #E2E8F0",
+    backgroundColor: "#FFFFFF",
     cursor: "pointer",
-    transition: "all 0.15s ease",
+    transition: "all 0.2s ease",
+  },
+  serviceItemSelected: {
+    borderColor: "#06C755",
+    backgroundColor: "#F0FDF4",
+    boxShadow: "0 4px 12px rgba(6, 199, 85, 0.12)",
+  },
+  serviceItemVip: {
+    borderLeft: "4px solid #7C3AED",
   },
   prefixBadge: {
-    color: "#FFFFFF",
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     fontWeight: 800,
-    fontSize: 15,
-    width: 34,
-    height: 34,
-    borderRadius: 8,
+    fontSize: 16,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  vipBadge: {
+    backgroundColor: "#F5F3FF",
+    color: "#7C3AED",
+    fontSize: 10,
+    fontWeight: 700,
+    padding: "2px 6px",
+    borderRadius: 6,
+    border: "1px solid #DDD6FE",
+  },
+  radioIndicator: {
+    width: 20,
+    height: 20,
+    borderRadius: "50%",
+    border: "2px solid #CBD5E1",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
   },
-  input: {
-    width: "100%",
-    padding: "12px 14px",
-    borderRadius: 10,
-    border: "1px solid #CBD5E1",
-    fontSize: 14,
-    marginTop: 6,
-    boxSizing: "border-box",
+  radioInnerDot: {
+    width: 8,
+    height: 8,
+    borderRadius: "50%",
+    backgroundColor: "#FFFFFF",
+  },
+  fieldLabel: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: "#334155",
+    display: "block",
+    marginBottom: 6,
+  },
+  inputWrap: {
+    display: "flex",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+    border: "1.5px solid #E2E8F0",
+    borderRadius: 14,
+    padding: "4px 14px",
+  },
+  inputIcon: {
+    fontSize: 16,
+    marginRight: 8,
+    color: "#64748B",
+  },
+  cleanInput: {
+    flex: 1,
+    border: "none",
+    background: "none",
     outline: "none",
+    fontSize: 14,
+    fontFamily: "inherit",
+    padding: "10px 0",
+    color: "#0F172A",
   },
   consentBox: {
     backgroundColor: "#F8FAFC",
     border: "1px solid #E2E8F0",
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 16,
+    borderRadius: 14,
+    padding: 14,
+    marginTop: 18,
+  },
+  checkbox: {
+    marginTop: 3,
+    accentColor: "#06C755",
+    width: 16,
+    height: 16,
   },
   primaryButton: {
     width: "100%",
-    backgroundColor: "#06C755",
+    background: "linear-gradient(135deg, #06C755 0%, #059669 100%)",
     color: "#FFFFFF",
     fontSize: 15,
     fontWeight: 700,
-    padding: 14,
-    borderRadius: 12,
+    fontFamily: "inherit",
+    padding: 15,
+    borderRadius: 14,
     border: "none",
     cursor: "pointer",
-    marginTop: 20,
-    boxShadow: "0 2px 4px rgba(6,199,85,0.25)",
+    marginTop: 18,
+    boxShadow: "0 6px 16px rgba(6, 199, 85, 0.28)",
+    transition: "all 0.15s ease",
   },
-  secondaryButton: {
-    flex: 1,
-    backgroundColor: "#F1F5F9",
-    color: "#334155",
-    fontSize: 13,
-    fontWeight: 600,
-    padding: 12,
-    borderRadius: 10,
-    border: "1px solid #CBD5E1",
-    cursor: "pointer",
+  miniSpinner: {
+    width: 14,
+    height: 14,
+    border: "2px solid rgba(255,255,255,0.3)",
+    borderTop: "2px solid #FFFFFF",
+    borderRadius: "50%",
+    display: "inline-block",
+    animation: "spin 0.8s linear infinite",
   },
-  cancelButton: {
-    flex: 1,
-    backgroundColor: "#FEF2F2",
-    color: "#DC2626",
-    fontSize: 13,
-    fontWeight: 600,
-    padding: 12,
-    borderRadius: 10,
-    border: "1px solid #FECACA",
-    cursor: "pointer",
-  },
-  ticketCard: {
+  emptyCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 20,
-    padding: 24,
-    boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
-    border: "1.5px solid #06C755",
-    position: "relative",
+    padding: 40,
+    textAlign: "center",
+    border: "1px solid #E2E8F0",
+    boxShadow: "0 4px 14px rgba(15, 23, 42, 0.03)",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+  },
+  emptyIconWrap: {
+    width: 68,
+    height: 68,
+    borderRadius: 20,
+    backgroundColor: "#F1F5F9",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 32,
+  },
+  // Luxury Boarding-Pass Ticket
+  boardingPassTicket: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    boxShadow: "0 12px 32px rgba(15, 23, 42, 0.08)",
+    border: "1px solid #E2E8F0",
     overflow: "hidden",
   },
-  ticketCardHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    borderBottom: "1px dashed #E2E8F0",
-    paddingBottom: 14,
+  ticketTopSection: {
+    padding: "24px 24px 16px 24px",
+    background: "linear-gradient(180deg, #FFFFFF 0%, #FAFAFA 100%)",
   },
-  ticketBranchLabel: {
+  ticketOrgName: {
     fontSize: 11,
-    fontWeight: 700,
-    color: "#94A3B8",
-    letterSpacing: 1,
+    fontWeight: 800,
+    letterSpacing: 1.5,
+    color: "#059669",
+    textTransform: "uppercase",
   },
-  ticketServiceLabel: {
-    fontSize: 16,
-    fontWeight: 700,
+  ticketServiceName: {
+    fontSize: 18,
+    fontWeight: 800,
     color: "#0F172A",
     marginTop: 2,
   },
-  statusPill: {
+  ticketStatusPill: {
     color: "#FFFFFF",
     fontSize: 12,
     fontWeight: 700,
-    padding: "4px 10px",
+    padding: "5px 12px",
     borderRadius: 20,
+    boxShadow: "0 2px 6px rgba(0,0,0,0.1)",
   },
   ticketNumberSection: {
     textAlign: "center",
-    padding: "24px 0 16px 0",
+    padding: "20px 0 14px 0",
   },
-  ticketNumberText: {
-    fontSize: 54,
+  ticketNumberSubLabel: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "#64748B",
+    letterSpacing: 0.5,
+  },
+  ticketNumberDisplay: {
+    fontSize: 60,
     fontWeight: 900,
-    color: "#06C755",
     letterSpacing: 2,
-    lineHeight: 1,
+    lineHeight: 1.1,
+    color: "#06C755",
+    textShadow: "0 2px 10px rgba(6, 199, 85, 0.2)",
+    margin: "4px 0",
   },
-  ticketMetricsRow: {
+  livePulseDot: {
+    width: 7,
+    height: 7,
+    borderRadius: "50%",
+    backgroundColor: "#06C755",
+    display: "inline-block",
+    animation: "ripple 2s infinite ease-in-out",
+  },
+  twinMetricsRow: {
     display: "flex",
     backgroundColor: "#F8FAFC",
-    borderRadius: 12,
-    padding: "14px 10px",
+    border: "1px solid #E2E8F0",
+    borderRadius: 16,
+    padding: "14px 12px",
     marginTop: 10,
   },
-  metricBox: {
+  twinMetricItem: {
     flex: 1,
     textAlign: "center",
   },
-  metricVal: {
-    fontSize: 22,
+  twinMetricValue: {
+    fontSize: 24,
     fontWeight: 800,
     color: "#0F172A",
   },
-  metricLabel: {
+  twinMetricLabel: {
     fontSize: 11,
     color: "#64748B",
     marginTop: 2,
   },
-  metricDivider: {
+  twinMetricDivider: {
     width: 1,
     backgroundColor: "#E2E8F0",
   },
-  calledNotificationBox: {
-    marginTop: 16,
+  ticketPerforatedRow: {
+    position: "relative",
+    display: "flex",
+    alignItems: "center",
+    height: 24,
+    backgroundColor: "#FAFAFA",
+  },
+  notchLeft: {
+    position: "absolute",
+    left: -12,
+    width: 24,
+    height: 24,
+    borderRadius: "50%",
+    backgroundColor: "#F8FAFC",
+    borderRight: "1px solid #E2E8F0",
+  },
+  notchRight: {
+    position: "absolute",
+    right: -12,
+    width: 24,
+    height: 24,
+    borderRadius: "50%",
+    backgroundColor: "#F8FAFC",
+    borderLeft: "1px solid #E2E8F0",
+  },
+  perforatedLine: {
+    width: "100%",
+    margin: "0 20px",
+    borderTop: "2px dashed #CBD5E1",
+  },
+  ticketBottomSection: {
+    padding: "16px 24px 24px 24px",
+    backgroundColor: "#FAFAFA",
+  },
+  calledBannerBox: {
     backgroundColor: "#FEF2F2",
     border: "1.5px solid #F87171",
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 16,
+    padding: 14,
     display: "flex",
     alignItems: "center",
     gap: 12,
+    marginBottom: 14,
+    animation: "pulseSlow 2s infinite",
   },
-  liveIndicatorRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-    justifyContent: "center",
-    marginTop: 16,
-  },
-  liveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: "50%",
-    backgroundColor: "#22C55E",
-    display: "inline-block",
-  },
-  callAlertBanner: {
-    backgroundColor: "#EF4444",
-    color: "#FFFFFF",
-    padding: "12px 16px",
-    fontSize: 14,
-    fontWeight: 600,
+  journeyTrack: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-  },
-  closeAlertBtn: {
     backgroundColor: "#FFFFFF",
-    color: "#DC2626",
-    border: "none",
-    fontWeight: 700,
-    fontSize: 12,
-    padding: "4px 10px",
-    borderRadius: 6,
-    cursor: "pointer",
+    borderRadius: 14,
+    padding: "14px 16px",
+    border: "1px solid #E2E8F0",
   },
-  profileHeaderBox: {
+  journeyStep: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 4,
+  },
+  journeyDot: {
+    width: 24,
+    height: 24,
+    borderRadius: "50%",
+    backgroundColor: "#E2E8F0",
+    color: "#94A3B8",
+    fontSize: 11,
+    fontWeight: 700,
     display: "flex",
     alignItems: "center",
-    gap: 14,
-    padding: "14px 0",
-    borderBottom: "1px solid #F1F5F9",
+    justifyContent: "center",
   },
-  avatarImg: {
-    width: 60,
-    height: 60,
+  journeyDotActive: {
+    backgroundColor: "#06C755",
+    color: "#FFFFFF",
+    boxShadow: "0 2px 6px rgba(6, 199, 85, 0.4)",
+  },
+  journeyLine: {
+    flex: 1,
+    height: 2,
+    backgroundColor: "#E2E8F0",
+    margin: "0 6px",
+    marginBottom: 16,
+  },
+  journeyLineActive: {
+    backgroundColor: "#06C755",
+  },
+  journeyLabel: {
+    fontSize: 10,
+    color: "#64748B",
+    fontWeight: 500,
+  },
+  ticketMetaRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: "12px 14px",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    border: "1px solid #E2E8F0",
+    marginTop: 14,
+  },
+  refreshBtn: {
+    flex: 2,
+    backgroundColor: "#F1F5F9",
+    color: "#1E293B",
+    border: "1px solid #CBD5E1",
+    padding: "12px 14px",
+    borderRadius: 12,
+    fontWeight: 700,
+    fontSize: 13,
+    cursor: "pointer",
+    fontFamily: "inherit",
+  },
+  cancelTicketBtn: {
+    flex: 1,
+    backgroundColor: "#FEF2F2",
+    color: "#DC2626",
+    border: "1px solid #FECACA",
+    padding: "12px 14px",
+    borderRadius: 12,
+    fontWeight: 700,
+    fontSize: 13,
+    cursor: "pointer",
+    fontFamily: "inherit",
+  },
+  // Profile Tab
+  membershipCard: {
+    background: "linear-gradient(135deg, #059669 0%, #0F172A 100%)",
+    color: "#FFFFFF",
+    borderRadius: 22,
+    padding: "22px 20px",
+    boxShadow: "0 10px 25px -5px rgba(5, 150, 105, 0.3)",
+  },
+  cardBrandBadge: {
+    fontSize: 10,
+    fontWeight: 800,
+    letterSpacing: 1.5,
+    color: "#6EE7B7",
+  },
+  cardMemberTier: {
+    fontSize: 16,
+    fontWeight: 900,
+    letterSpacing: 1,
+    marginTop: 2,
+  },
+  chipIcon: {
+    fontSize: 28,
+  },
+  memberAvatar: {
+    width: 54,
+    height: 54,
     borderRadius: "50%",
-    border: "2px solid #06C755",
+    border: "2px solid #34D399",
   },
-  consentBadge: {
-    display: "inline-block",
-    backgroundColor: "#DCFCE7",
-    color: "#15803D",
+  memberName: {
+    fontSize: 16,
+    fontWeight: 700,
+    color: "#FFFFFF",
+  },
+  memberUid: {
     fontSize: 11,
+    color: "#94A3B8",
+    fontFamily: "monospace",
+    marginTop: 2,
+  },
+  memberStatusBadge: {
+    display: "inline-block",
+    backgroundColor: "rgba(16, 185, 129, 0.2)",
+    border: "1px solid rgba(16, 185, 129, 0.4)",
+    color: "#A7F3D0",
+    fontSize: 10,
     fontWeight: 600,
     padding: "2px 8px",
-    borderRadius: 8,
-    marginTop: 6,
+    borderRadius: 6,
+    marginTop: 4,
   },
-  devBox: {
+  memberCardFooter: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderTop: "1px solid rgba(255,255,255,0.12)",
+    paddingTop: 12,
+  },
+  devCard: {
     backgroundColor: "#FFFBEB",
     border: "1px solid #FDE68A",
-    borderRadius: 12,
-    padding: 12,
-    marginTop: 16,
+    borderRadius: 16,
+    padding: 14,
   },
   devSwitchBtn: {
     backgroundColor: "#FFFFFF",
     border: "1px solid #D97706",
-    color: "#92400E",
-    padding: "6px 10px",
+    color: "#B45309",
+    padding: "6px 12px",
     borderRadius: 8,
     fontSize: 12,
     fontWeight: 600,
     cursor: "pointer",
   },
-  infoRow: {
+  settingsRow: {
     display: "flex",
     justifyContent: "space-between",
-    fontSize: 13,
-    padding: "8px 0",
-    borderBottom: "1px solid #F8FAFC",
-    color: "#475569",
-  },
-  bottomNav: {
-    position: "fixed",
-    bottom: 0,
-    left: "50%",
-    transform: "translateX(-50%)",
-    width: "100%",
-    maxWidth: 480,
-    backgroundColor: "#FFFFFF",
-    borderTop: "1px solid #E2E8F0",
-    display: "flex",
-    height: 60,
-    zIndex: 20,
-  },
-  navBtn: {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
     alignItems: "center",
-    justifyContent: "center",
-    background: "none",
-    border: "none",
+    padding: "12px 0",
+    borderBottom: "1px solid #F1F5F9",
+  },
+  testSoundBtn: {
+    backgroundColor: "#F1F5F9",
+    border: "1px solid #CBD5E1",
+    color: "#334155",
+    padding: "6px 12px",
+    borderRadius: 8,
+    fontSize: 12,
+    fontWeight: 600,
     cursor: "pointer",
-    padding: 0,
   },
-  ticketBadgeDot: {
-    position: "absolute",
-    top: 8,
-    right: "32%",
-    width: 8,
-    height: 8,
-    borderRadius: "50%",
-    backgroundColor: "#EF4444",
-  },
-  centerContainer: {
-    minHeight: "100vh",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-    fontFamily: "system-ui, sans-serif",
-  },
-  errorBox: {
-    backgroundColor: "#FEF2F2",
-    border: "1px solid #FECACA",
-    color: "#B91C1C",
-    padding: 16,
-    borderRadius: 12,
-    maxWidth: 360,
-    textAlign: "center",
-  },
-  spinner: {
-    width: 28,
-    height: 28,
-    border: "3px solid #E2E8F0",
-    borderTop: "3px solid #06C755",
-    borderRadius: "50%",
-    animation: "spin 1s linear infinite",
-    margin: "0 auto",
-  },
+  // AI Chat Section
   chatSection: {
     display: "flex",
     flexDirection: "column",
-    height: "calc(100vh - 145px)",
+    height: "calc(100vh - 190px)",
   },
   chatBotHeader: {
     backgroundColor: "#FFFFFF",
-    padding: "10px 14px",
-    borderRadius: 14,
+    padding: "12px 16px",
+    borderRadius: 18,
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     border: "1px solid #E2E8F0",
     marginBottom: 10,
-    boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
+    boxShadow: "0 2px 6px rgba(0,0,0,0.03)",
   },
   chatBotAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: "50%",
-    backgroundColor: "#EFF6FF",
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    background: "linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    fontSize: 18,
+    fontSize: 20,
     border: "1px solid #BFDBFE",
   },
-  aiOnlineDot: {
-    width: 8,
-    height: 8,
-    borderRadius: "50%",
-    backgroundColor: "#22C55E",
-    display: "inline-block",
-  },
-  deepseekBadge: {
-    backgroundColor: "#0EA5E9",
+  aiBadge: {
+    backgroundColor: "#0284C7",
     color: "#FFFFFF",
     fontSize: 10,
-    fontWeight: 700,
-    padding: "3px 7px",
+    fontWeight: 800,
+    padding: "3px 8px",
     borderRadius: 6,
     letterSpacing: 0.5,
   },
@@ -1364,7 +1843,7 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8,
     overflowX: "auto",
     paddingBottom: 8,
-    marginBottom: 8,
+    marginBottom: 6,
     WebkitOverflowScrolling: "touch",
   },
   quickChip: {
@@ -1372,12 +1851,12 @@ const styles: Record<string, React.CSSProperties> = {
     backgroundColor: "#FFFFFF",
     border: "1px solid #CBD5E1",
     borderRadius: 20,
-    padding: "6px 12px",
+    padding: "7px 14px",
     fontSize: 12,
     fontWeight: 600,
     color: "#334155",
     cursor: "pointer",
-    boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+    boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
   },
   chatMessageList: {
     flex: 1,
@@ -1389,7 +1868,7 @@ const styles: Record<string, React.CSSProperties> = {
   msgAvatar: {
     width: 28,
     height: 28,
-    borderRadius: "50%",
+    borderRadius: 10,
     backgroundColor: "#E2E8F0",
     display: "flex",
     alignItems: "center",
@@ -1399,46 +1878,59 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: 4,
   },
   userBubble: {
-    backgroundColor: "#06C755",
+    background: "linear-gradient(135deg, #06C755 0%, #059669 100%)",
     color: "#FFFFFF",
-    padding: "10px 14px",
-    borderRadius: "16px 16px 4px 16px",
+    padding: "11px 16px",
+    borderRadius: "18px 18px 4px 18px",
     fontSize: 14,
-    boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+    boxShadow: "0 2px 8px rgba(6, 199, 85, 0.15)",
   },
   aiBubble: {
     backgroundColor: "#FFFFFF",
     color: "#0F172A",
-    padding: "10px 14px",
-    borderRadius: "16px 16px 16px 4px",
+    padding: "11px 16px",
+    borderRadius: "18px 18px 18px 4px",
     fontSize: 14,
     border: "1px solid #E2E8F0",
-    boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+    boxShadow: "0 2px 6px rgba(0,0,0,0.03)",
   },
   chatTicketCard: {
     backgroundColor: "#F8FAFC",
-    border: "1px solid #E2E8F0",
-    borderRadius: 10,
-    padding: 10,
-    marginTop: 8,
+    border: "1.5px solid #E2E8F0",
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 10,
+  },
+  chatTicketBadge: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: "#06C755",
+    backgroundColor: "#DCFCE7",
+    padding: "2px 8px",
+    borderRadius: 6,
+  },
+  chatTicketNumber: {
+    fontSize: 30,
+    fontWeight: 900,
+    color: "#06C755",
+    margin: "4px 0",
   },
   viewTicketBtn: {
     width: "100%",
-    backgroundColor: "#06C755",
+    background: "linear-gradient(135deg, #06C755 0%, #059669 100%)",
     color: "#FFFFFF",
     border: "none",
-    borderRadius: 6,
-    padding: "6px 8px",
-    fontSize: 11,
+    borderRadius: 8,
+    padding: "8px 10px",
+    fontSize: 12,
     fontWeight: 700,
     cursor: "pointer",
-    marginTop: 4,
   },
   typingBubble: {
     backgroundColor: "#FFFFFF",
     border: "1px solid #E2E8F0",
-    borderRadius: "16px 16px 16px 4px",
-    padding: "10px 14px",
+    borderRadius: "18px 18px 18px 4px",
+    padding: "10px 16px",
     display: "flex",
     alignItems: "center",
   },
@@ -1455,20 +1947,22 @@ const styles: Record<string, React.CSSProperties> = {
     gap: 8,
     marginTop: 8,
     backgroundColor: "#FFFFFF",
-    padding: "8px 10px",
-    borderRadius: 14,
-    border: "1px solid #E2E8F0",
-    boxShadow: "0 2px 6px rgba(0,0,0,0.05)",
+    padding: "8px 12px",
+    borderRadius: 16,
+    border: "1.5px solid #E2E8F0",
+    boxShadow: "0 4px 12px rgba(0,0,0,0.04)",
   },
   chatInput: {
     flex: 1,
     border: "none",
+    background: "none",
     outline: "none",
     fontSize: 14,
-    padding: "6px 8px",
+    fontFamily: "inherit",
+    padding: "6px 4px",
   },
   chatSendBtn: {
-    backgroundColor: "#06C755",
+    background: "linear-gradient(135deg, #06C755 0%, #059669 100%)",
     color: "#FFFFFF",
     border: "none",
     borderRadius: 10,
@@ -1476,5 +1970,100 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     fontSize: 13,
     cursor: "pointer",
+  },
+  // Floating Frosted Glass Navigation
+  floatingBottomNav: {
+    position: "fixed",
+    bottom: 14,
+    left: "50%",
+    transform: "translateX(-50%)",
+    width: "calc(100% - 28px)",
+    maxWidth: 440,
+    backgroundColor: "rgba(255, 255, 255, 0.92)",
+    backdropFilter: "blur(20px)",
+    WebkitBackdropFilter: "blur(20px)",
+    borderRadius: 24,
+    border: "1px solid rgba(255, 255, 255, 0.8)",
+    boxShadow: "0 10px 30px rgba(15, 23, 42, 0.12)",
+    display: "flex",
+    padding: 6,
+    zIndex: 30,
+  },
+  navPillBtn: {
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "transparent",
+    border: "none",
+    borderRadius: 18,
+    padding: "8px 0",
+    cursor: "pointer",
+    color: "#94A3B8",
+    transition: "all 0.15s ease",
+  },
+  navPillBtnActive: {
+    backgroundColor: "#F0FDF4",
+    color: "#06C755",
+    boxShadow: "0 2px 6px rgba(6, 199, 85, 0.15)",
+  },
+  ticketBadgeDot: {
+    position: "absolute",
+    top: 6,
+    right: "26%",
+    width: 8,
+    height: 8,
+    borderRadius: "50%",
+    backgroundColor: "#EF4444",
+    border: "2px solid #FFFFFF",
+  },
+  callAlertBanner: {
+    backgroundColor: "#EF4444",
+    color: "#FFFFFF",
+    padding: "12px 18px",
+    fontSize: 14,
+    fontWeight: 600,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  closeAlertBtn: {
+    backgroundColor: "#FFFFFF",
+    color: "#DC2626",
+    border: "none",
+    fontWeight: 700,
+    fontSize: 12,
+    padding: "5px 12px",
+    borderRadius: 8,
+    cursor: "pointer",
+  },
+  centerContainer: {
+    minHeight: "100vh",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+    backgroundColor: "#0F172A",
+    fontFamily: "'Prompt', sans-serif",
+  },
+  errorBox: {
+    backgroundColor: "#1E293B",
+    border: "1px solid #334155",
+    color: "#F8FAFC",
+    padding: 24,
+    borderRadius: 20,
+    maxWidth: 360,
+    textAlign: "center",
+    boxShadow: "0 10px 25px rgba(0,0,0,0.3)",
+  },
+  spinner: {
+    width: 36,
+    height: 36,
+    border: "3px solid #334155",
+    borderTop: "3px solid #06C755",
+    borderRadius: "50%",
+    animation: "spin 1s linear infinite",
+    margin: "0 auto",
   },
 };
