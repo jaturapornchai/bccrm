@@ -10,6 +10,9 @@ const json = (data: unknown) => ({
 /**
  * สร้าง MCP server ต่อ request (stateless — ไม่ต้องจัดการ session)
  * เครื่องมือทั้งหมด wrap QueuesService ตัวเดียวกับ REST API
+ *
+ * หมายเหตุ: cast เป็น any เพื่อเลี่ยง TS2589 (type instantiation ลึกเกิน)
+ * จากการผสาน generic ของ MCP SDK + zod — ความถูกต้องบังคับด้วย zod ตอน runtime อยู่แล้ว
  */
 @Injectable()
 export class McpServerFactory {
@@ -21,7 +24,14 @@ export class McpServerFactory {
       { instructions: "ระบบคิวและ CRM ของ BCCRM — ใช้เครื่องมือนี้จัดการคิวของสาขา (demo branchId = \"demo\")" },
     );
 
-    server.registerTool(
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    const register = server.registerTool.bind(server) as (
+      name: string,
+      config: any,
+      handler: (args: any) => Promise<unknown>,
+    ) => void;
+
+    register(
       "bccrm_list_waiting",
       {
         title: "ดูคิวที่รออยู่",
@@ -31,7 +41,7 @@ export class McpServerFactory {
       async ({ branchId }) => json(await this.queues.waitingList(branchId)),
     );
 
-    server.registerTool(
+    register(
       "bccrm_create_ticket",
       {
         title: "ออกคิวใหม่",
@@ -46,7 +56,7 @@ export class McpServerFactory {
       async (input) => json(await this.queues.createTicket(input)),
     );
 
-    server.registerTool(
+    register(
       "bccrm_call_next",
       {
         title: "เรียกคิวถัดไป",
@@ -61,7 +71,7 @@ export class McpServerFactory {
         json(await this.queues.callNext(branchId, counterId, staffId)),
     );
 
-    server.registerTool(
+    register(
       "bccrm_change_state",
       {
         title: "เปลี่ยนสถานะคิว",
@@ -74,7 +84,7 @@ export class McpServerFactory {
       async ({ ticketId, state }) => json(await this.queues.changeState(ticketId, state)),
     );
 
-    server.registerTool(
+    register(
       "bccrm_today_stats",
       {
         title: "สถิติคิววันนี้",

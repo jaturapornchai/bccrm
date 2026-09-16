@@ -148,7 +148,7 @@
 | ส่วน | เทคโนโลยี | เหตุผล |
 |---|---|---|
 | Backend API | NestJS (Node.js + TypeScript) | ภาษาเดียวกับ Next.js, โครงสร้าง module ชัดเจน เหมาะทีมไทย |
-| ฐานข้อมูล | PostgreSQL + Prisma ORM | multi-tenant, transaction แข็งแรง, รายงาน SQL ตรงๆ ได้ |
+| ฐานข้อมูล | **MongoDB** (driver ตรง ไม่ผ่าน ORM) | เลือกใช้แล้ว — เครื่อง dev มีอยู่ใน Docker; เหมาะกับข้อมูลคิว/ลูกค้าที่โครงยืดหยุ่น (PostgreSQL+Prisma เก็บไว้เป็นทางเลือกผ่าน DB_MODE=prisma) |
 | Cache/Queue runtime | Redis | สถานะคิวสด, ล็อกตอนออกเลข, pub/sub |
 | Background jobs | BullMQ (บน Redis) | งานแจ้งเตือนล่วงหน้า, ตัด no-show, รีเซ็ตเลขคิวรายวัน |
 | Realtime | Socket.io | จอ TV/Kiosk/แอป/LIFF อัปเดตสด |

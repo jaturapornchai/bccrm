@@ -13,6 +13,7 @@ import {
   type QueueEntry,
 } from "@bccrm/queue-engine";
 import { QUEUE_STORE, type QueueStore, type TicketRecord } from "./store/queue-store";
+import { QueueGateway } from "../realtime/queue.gateway";
 import type { CreateTicketDto } from "./dto/queue.dto";
 
 /** วันที่คิว (ตัดเวลาออก) ตาม timezone ร้าน — Phase 1 ใช้ Asia/Bangkok ตรง ๆ */
@@ -23,7 +24,10 @@ export function queueDateOf(date = new Date()): Date {
 
 @Injectable()
 export class QueuesService {
-  constructor(@Inject(QUEUE_STORE) private readonly store: QueueStore) {}
+  constructor(
+    @Inject(QUEUE_STORE) private readonly store: QueueStore,
+    private readonly gateway: QueueGateway,
+  ) {}
 
   /**
    * ออกเลขคิว — nextSequence ต้อง atomic ที่ชั้น store
@@ -38,7 +42,7 @@ export class QueuesService {
     const sequence = await this.store.nextSequence(dto.branchId, dto.serviceId, queueDate);
     const number = formatTicketNumber(service.ticketPrefix, sequence);
 
-    return this.store.createTicket({
+    const ticket = await this.store.createTicket({
       branchId: dto.branchId,
       serviceId: dto.serviceId,
       counterId: dto.counterId,
@@ -50,6 +54,9 @@ export class QueuesService {
       state: dto.source === "LINE_BOOKING" ? "BOOKED" : "WAITING",
       isVip: dto.isVip ?? false,
     });
+
+    this.gateway.emitQueueUpdate(dto.branchId, { type: "created", ticket });
+    return ticket;
   }
 
   /** ดึงคิวที่รออยู่ของสาขาในวันนี้ เรียงตามนโยบาย queue-engine */
@@ -74,7 +81,14 @@ export class QueuesService {
     const [next] = await this.waitingList(branchId);
     if (!next) throw new NotFoundException("ไม่มีคิวที่รออยู่");
 
-    return this.changeState(next.id, TicketState.Called, { counterId, servedById: staffId, calledAt: new Date() });
+    const called = await this.changeState(next.id, TicketState.Called, {
+      counterId,
+      servedById: staffId,
+      calledAt: new Date(),
+    });
+    // แจ้งจอ TV/ลำโพงเรียกคิวแยกจากอัปเดตทั่วไป
+    this.gateway.emitCall(branchId, { number: called.number, counterName: counterId });
+    return called;
   }
 
   /** เปลี่ยนสถานะคิวตาม state machine ของ queue-engine (รับได้ทั้ง "serving" และ "Serving") */
@@ -104,10 +118,13 @@ export class QueuesService {
       extra[stateField[target]] = new Date();
     }
 
-    return this.store.updateTicket(ticketId, {
+    const updated = await this.store.updateTicket(ticketId, {
       state: target.toUpperCase(),
       ...extra,
     } as Partial<TicketRecord>);
+
+    this.gateway.emitQueueUpdate(updated.branchId, { type: "state_changed", ticket: updated });
+    return updated;
   }
 
   /** สถิติวันนี้ของสาขา — ใช้บนจอ dashboard */

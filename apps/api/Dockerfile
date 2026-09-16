@@ -15,8 +15,7 @@ FROM deps AS build
 COPY packages ./packages
 COPY apps/api ./apps/api
 COPY tsconfig.base.json ./
-RUN pnpm --filter @bccrm/database run generate \
-  && pnpm --filter @bccrm/api run build
+RUN pnpm --filter @bccrm/api run build
 
 FROM base AS runner
 ENV NODE_ENV=production

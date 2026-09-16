@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { PrismaModule } from "./prisma/prisma.module";
+import { MongoModule } from "./mongo/mongo.module";
 import { HealthController } from "./health/health.controller";
 import { QueuesModule } from "./queues/queues.module";
 import { LineModule } from "./line/line.module";
@@ -12,6 +13,7 @@ import { McpModule } from "./mcp/mcp.module";
   imports: [
     ConfigModule.forRoot({ isGlobal: true, envFilePath: "../../.env" }),
     PrismaModule,
+    MongoModule,
     RealtimeModule,
     AuthModule,
     QueuesModule,

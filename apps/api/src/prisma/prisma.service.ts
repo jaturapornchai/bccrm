@@ -6,15 +6,15 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   private readonly logger = new Logger(PrismaService.name);
 
   async onModuleInit() {
-    if (process.env.DB_MODE === "memory") {
-      this.logger.log("DB_MODE=memory — ข้ามการเชื่อมต่อ PostgreSQL");
+    if (process.env.DB_MODE !== "prisma") {
+      this.logger.log(`DB_MODE=${process.env.DB_MODE ?? "mongo"} — ข้ามการเชื่อมต่อ PostgreSQL`);
       return;
     }
     await this.$connect();
   }
 
   async onModuleDestroy() {
-    if (process.env.DB_MODE === "memory") return;
+    if (process.env.DB_MODE !== "prisma") return;
     await this.$disconnect();
   }
 }

@@ -1,18 +1,17 @@
 name: bccrm
 
+# Self-host stack: MongoDB + Redis + MinIO + API + Web Admin
+# (บนเครื่อง dev ที่มีบริการเหล่านี้อยู่แล้ว รันแค่ api/admin ก็พอ — ดู README)
+
 services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: bccrm
-      POSTGRES_PASSWORD: bccrm
-      POSTGRES_DB: bccrm
+  mongo:
+    image: mongo:7
     ports:
-      - "5432:5432"
+      - "27017:27017"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - mongo_data:/data/db
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U bccrm"]
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand('ping').ok"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -29,18 +28,32 @@ services:
       timeout: 3s
       retries: 10
 
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: bccrm
+      MINIO_ROOT_PASSWORD: bccrm-secret-change-me
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # console
+    volumes:
+      - minio_data:/data
+
   api:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://bccrm:bccrm@postgres:5432/bccrm
+      DB_MODE: mongo
+      MONGODB_URL: mongodb://mongo:27017/bccrm
       REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
     ports:
       - "3001:3001"
     depends_on:
-      postgres:
+      mongo:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -57,5 +70,6 @@ services:
       - api
 
 volumes:
-  postgres_data:
+  mongo_data:
   redis_data:
+  minio_data:
