@@ -1,24 +1,55 @@
 import liff from "@line/liff";
 
+export interface LiffUserData {
+  devMode: boolean;
+  userId: string;
+  displayName: string;
+  pictureUrl?: string;
+}
+
 /**
  * เริ่มต้น LIFF — คืน profile ของลูกค้าเมื่อ login แล้ว
  * อ่านคู่มือ: https://developers.line.biz/en/docs/liff/
  */
-export async function initLiff() {
+export async function initLiff(): Promise<LiffUserData | null> {
   const liffId = import.meta.env.VITE_LIFF_ID as string | undefined;
+
+  const getDevProfile = (): LiffUserData => {
+    const savedUserId = localStorage.getItem("bccrm_dev_userid") || "Udev001";
+    const savedName = localStorage.getItem("bccrm_dev_name") || "คุณลูกค้า (ทดสอบ)";
+    return {
+      devMode: true,
+      userId: savedUserId,
+      displayName: savedName,
+      pictureUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${savedUserId}`,
+    };
+  };
+
   if (!liffId) {
-    // โหมด dev นอก LINE — ใช้ profile ปลอมเพื่อพัฒนา UI ต่อได้
-    return { devMode: true as const, userId: "dev-user", displayName: "ผู้ใช้ทดสอบ" };
+    return getDevProfile();
   }
 
-  await liff.init({ liffId });
-  if (!liff.isLoggedIn()) {
-    liff.login();
-    return null; // จะ redirect ไปหน้า LINE login
-  }
+  try {
+    await liff.init({ liffId });
+    if (!liff.isLoggedIn()) {
+      if (!liff.isInClient() && typeof window !== "undefined" && window.location.hostname === "localhost") {
+        return getDevProfile();
+      }
+      liff.login();
+      return null; // redirecting to line login
+    }
 
-  const profile = await liff.getProfile();
-  return { devMode: false as const, userId: profile.userId, displayName: profile.displayName };
+    const profile = await liff.getProfile();
+    return {
+      devMode: false,
+      userId: profile.userId,
+      displayName: profile.displayName,
+      pictureUrl: profile.pictureUrl,
+    };
+  } catch (err) {
+    console.warn("LIFF init fallback to dev mode:", err);
+    return getDevProfile();
+  }
 }
 
-export type LiffProfile = Awaited<ReturnType<typeof initLiff>>;
+export type LiffProfile = LiffUserData | null;

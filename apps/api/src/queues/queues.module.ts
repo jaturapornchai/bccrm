@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { MongoService } from "../mongo/mongo.service";
 import { QueuesController } from "./queues.controller";
@@ -8,6 +8,7 @@ import { PrismaQueueStore } from "./store/prisma-queue-store";
 import { MemoryQueueStore } from "./store/memory-queue-store";
 import { MongoQueueStore } from "./store/mongo-queue-store";
 import { RealtimeModule } from "../realtime/realtime.module";
+import { LineModule } from "../line/line.module";
 
 /**
  * เลือกชั้นเก็บข้อมูลตาม DB_MODE:
@@ -16,7 +17,7 @@ import { RealtimeModule } from "../realtime/realtime.module";
  *  - อื่น ๆ (ค่าเริ่มต้น) → MongoDB ✅ ฐานข้อมูลหลักของโปรเจกต์
  */
 @Module({
-  imports: [RealtimeModule],
+  imports: [RealtimeModule, forwardRef(() => LineModule)],
   controllers: [QueuesController],
   providers: [
     QueuesService,

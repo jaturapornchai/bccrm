@@ -16,6 +16,12 @@ export class PrismaQueueStore implements QueueStore {
     return this.prisma.service.findUnique({ where: { id: serviceId } });
   }
 
+  listServices(branchId: string): Promise<ServiceRecord[]> {
+    return this.prisma.service.findMany({
+      where: { branchId, isActive: true },
+    }) as Promise<ServiceRecord[]>;
+  }
+
   async nextSequence(branchId: string, serviceId: string, queueDate: Date): Promise<number> {
     const seq = await this.prisma.dailySequence.upsert({
       where: { branchId_serviceId_queueDate: { branchId, serviceId, queueDate } },
@@ -37,6 +43,21 @@ export class PrismaQueueStore implements QueueStore {
 
   findTicket(id: string): Promise<TicketRecord | null> {
     return this.prisma.queueTicket.findUnique({ where: { id } }) as Promise<TicketRecord | null>;
+  }
+
+  findActiveCustomerTicket(
+    branchId: string,
+    customerId: string,
+    queueDate: Date,
+  ): Promise<TicketRecord | null> {
+    return this.prisma.queueTicket.findFirst({
+      where: {
+        branchId,
+        customerId,
+        queueDate,
+        state: { in: ["WAITING", "CALLED", "SERVING", "BOOKED"] },
+      },
+    }) as Promise<TicketRecord | null>;
   }
 
   updateTicket(id: string, data: Partial<TicketRecord>): Promise<TicketRecord> {

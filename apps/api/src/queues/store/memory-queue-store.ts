@@ -28,6 +28,12 @@ export class MemoryQueueStore implements QueueStore {
     return Promise.resolve(this.services.get(serviceId) ?? null);
   }
 
+  listServices(branchId: string): Promise<ServiceRecord[]> {
+    return Promise.resolve(
+      [...this.services.values()].filter((s) => s.branchId === branchId && s.isActive),
+    );
+  }
+
   nextSequence(branchId: string, serviceId: string, queueDate: Date): Promise<number> {
     const key = `${branchId}|${serviceId}|${queueDate.toISOString()}`;
     const next = (this.sequences.get(key) ?? 0) + 1;
@@ -64,6 +70,23 @@ export class MemoryQueueStore implements QueueStore {
 
   findTicket(id: string): Promise<TicketRecord | null> {
     return Promise.resolve(this.tickets.get(id) ?? null);
+  }
+
+  findActiveCustomerTicket(
+    branchId: string,
+    customerId: string,
+    queueDate: Date,
+  ): Promise<TicketRecord | null> {
+    const day = queueDate.getTime();
+    const activeStates = new Set(["WAITING", "CALLED", "SERVING", "BOOKED"]);
+    const found = [...this.tickets.values()].find(
+      (t) =>
+        t.branchId === branchId &&
+        t.customerId === customerId &&
+        t.queueDate.getTime() === day &&
+        activeStates.has(t.state),
+    );
+    return Promise.resolve(found ?? null);
   }
 
   updateTicket(id: string, data: Partial<TicketRecord>): Promise<TicketRecord> {

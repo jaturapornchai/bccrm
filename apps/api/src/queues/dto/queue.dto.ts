@@ -21,6 +21,14 @@ export class CreateTicketDto {
   @IsOptional()
   @IsBoolean()
   isVip?: boolean;
+
+  @IsOptional()
+  @IsString()
+  state?: string;
+
+  @IsOptional()
+  @IsString()
+  lineUserId?: string;
 }
 
 export class CallNextDto {

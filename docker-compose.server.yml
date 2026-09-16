@@ -1,0 +1,31 @@
+name: bccrm-prod
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_MODE: mongo
+      MONGODB_URL: ${MONGODB_URL:-mongodb://mongo:27017/bccrm}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      API_PORT: 3001
+      LINE_CHANNEL_SECRET: ${LINE_CHANNEL_SECRET}
+      LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.deepseek.com}
+      AI_API_KEY: ${AI_API_KEY}
+      AI_MODEL: ${AI_MODEL:-deepseek-chat}
+      LIFF_URL: ${LIFF_URL:-https://liff.line.me/2009920675-GqteXbxD}
+    ports:
+      - "127.0.0.1:3501:3001"
+    networks:
+      - default
+      - bcai-account_data
+
+networks:
+  default:
+  bcai-account_data:
+    external: true

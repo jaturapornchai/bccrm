@@ -53,11 +53,13 @@ export interface CreateTicketData {
 
 export interface QueueStore {
   getService(serviceId: string): Promise<ServiceRecord | null>;
+  listServices(branchId: string): Promise<ServiceRecord[]>;
   /** เลขรันถัดไปของบริการในวันนั้น — ต้อง atomic (memory: ล็อกใน process, prisma: upsert increment) */
   nextSequence(branchId: string, serviceId: string, queueDate: Date): Promise<number>;
   createTicket(data: CreateTicketData): Promise<TicketRecord>;
   findWaiting(branchId: string, queueDate: Date): Promise<TicketRecord[]>;
   findTicket(id: string): Promise<TicketRecord | null>;
+  findActiveCustomerTicket(branchId: string, customerId: string, queueDate: Date): Promise<TicketRecord | null>;
   updateTicket(id: string, data: Partial<TicketRecord>): Promise<TicketRecord>;
   statsByState(branchId: string, queueDate: Date): Promise<Record<string, number>>;
 }

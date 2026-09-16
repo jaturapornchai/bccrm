@@ -75,6 +75,11 @@ export class MongoQueueStore implements QueueStore {
     return (await this.services()).findOne({ id: serviceId });
   }
 
+  async listServices(branchId: string): Promise<ServiceRecord[]> {
+    await this.ensureSetup();
+    return (await this.services()).find({ branchId, isActive: true }).toArray();
+  }
+
   /** atomic: $inc + upsert ใน Mongo จุดเดียว — หลาย client ออกเลขพร้อมกันไม่ชน */
   async nextSequence(branchId: string, serviceId: string, queueDate: Date): Promise<number> {
     await this.ensureSetup();
@@ -112,6 +117,20 @@ export class MongoQueueStore implements QueueStore {
   async findTicket(id: string): Promise<TicketRecord | null> {
     await this.ensureSetup();
     return (await this.tickets()).findOne({ id });
+  }
+
+  async findActiveCustomerTicket(
+    branchId: string,
+    customerId: string,
+    queueDate: Date,
+  ): Promise<TicketRecord | null> {
+    await this.ensureSetup();
+    return (await this.tickets()).findOne({
+      branchId,
+      customerId,
+      queueDate,
+      state: { $in: ["WAITING", "CALLED", "SERVING", "BOOKED"] },
+    });
   }
 
   async updateTicket(id: string, data: Partial<TicketRecord>): Promise<TicketRecord> {

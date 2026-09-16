@@ -16,7 +16,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --experimental-transform-types --test src/"
+    "test": "node --experimental-transform-types --test src/*.test.ts"
   },
   "devDependencies": {
     "typescript": "^5.6.0"
