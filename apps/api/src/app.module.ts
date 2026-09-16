@@ -6,6 +6,7 @@ import { QueuesModule } from "./queues/queues.module";
 import { LineModule } from "./line/line.module";
 import { AuthModule } from "./auth/auth.module";
 import { RealtimeModule } from "./realtime/realtime.module";
+import { McpModule } from "./mcp/mcp.module";
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { RealtimeModule } from "./realtime/realtime.module";
     AuthModule,
     QueuesModule,
     LineModule,
+    McpModule,
   ],
   controllers: [HealthController],
 })

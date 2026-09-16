@@ -7,12 +7,7 @@
     "rootDir": "src",
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
-    "strictPropertyInitialization": false,
-    "baseUrl": ".",
-    "paths": {
-      "@bccrm/queue-engine": ["../../packages/queue-engine/src/index.ts"],
-      "@bccrm/line-sdk": ["../../packages/line-sdk/src/index.ts"]
-    }
+    "strictPropertyInitialization": false
   },
   "include": ["src/**/*.ts"]
 }

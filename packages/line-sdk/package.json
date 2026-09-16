@@ -8,15 +8,18 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./flex": {
       "types": "./dist/flex/index.d.ts",
-      "import": "./dist/flex/index.js"
+      "import": "./dist/flex/index.js",
+      "default": "./dist/flex/index.js"
     },
     "./webhook": {
       "types": "./dist/webhook/index.d.ts",
-      "import": "./dist/webhook/index.js"
+      "import": "./dist/webhook/index.js",
+      "default": "./dist/webhook/index.js"
     }
   },
   "scripts": {
@@ -25,7 +28,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
-    "typescript": "^5.6.0"
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
   },
   "license": "MIT"
 }

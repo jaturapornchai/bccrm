@@ -30,31 +30,42 @@ Mobile App (Flutter) ───────────────┘   เจ�
 
 ## เริ่มใช้งาน (Self-Host)
 
-ความต้องการ: Node.js ≥ 20, pnpm ≥ 9, Docker
+ความต้องการ: Node.js ≥ 20, pnpm ≥ 9 (ต้องมี Docker เฉพาะตอนใช้ PostgreSQL จริง)
+
+### ทางลัด: รันแบบไม่ต้องมีฐานข้อมูล (Demo)
 
 ```bash
-# 1) โคลนและติดตั้ง
-git clone <repo-url> bccrm && cd bccrm
 pnpm install
+pnpm db:generate        # ครั้งแรกครั้งเดียว
+DB_MODE=memory pnpm --filter @bccrm/api dev   # API + MCP ที่พอร์ต 3001 (ข้อมูลตัวอย่างใน RAM)
+pnpm --filter @bccrm/admin dev                # Web Admin ที่พอร์ต 3000
+```
 
-# 2) ตั้งค่า environment
-cp .env.example .env   # แก้ค่า LINE channel และ JWT_SECRET
+- สาขาตัวอย่าง: `demo` · บริการ: `svc-general` (A), `svc-vip` (V) · เคาน์เตอร์: `counter-1`, `counter-2`
+- Web Admin ถ้าเชื่อม API ไม่ได้จะตกเข้า **โหมดสาธิต** (ข้อมูลจำลองฝั่ง browser) โดยอัตโนมัติ
+- บน Windows (cmd): `set DB_MODE=memory && pnpm --filter @bccrm/api dev`
 
-# 3) ยก database + redis ด้วย docker
+### รันเต็มรูปแบบ (PostgreSQL + Redis)
+
+```bash
+cp .env.example .env    # ตั้ง DB_MODE=prisma + แก้ค่า LINE channel และ JWT_SECRET
 docker compose up -d postgres redis
-
-# 4) migrate ฐานข้อมูล
 pnpm db:generate && pnpm db:migrate
-
-# 5) รันทุกแอปพร้อมกัน
 pnpm dev
 ```
 
-- Web Admin → http://localhost:3000
-- API → http://localhost:3001
-- LIFF (dev) → http://localhost:3002
-
 หรือยกทั้งระบบด้วย Docker คำสั่งเดียว: `docker compose up -d`
+
+## API & MCP (endpoint เดียวกัน ทุก client เชื่อมที่เดียว)
+
+| ทางเข้า | URL | ใช้โดย |
+|---|---|---|
+| REST API | `http://localhost:3001/api/...` | Web Admin, Flutter app, Kiosk, LIFF |
+| **MCP** | `POST http://localhost:3001/mcp` | AI agent / automation (JSON-RPC, stateless) |
+| Realtime | `ws://localhost:3001` (socket.io, ห้อง `branch:<branchId>`) | จอ TV, แอปพนักงาน, Kiosk |
+| LINE webhook | `POST /webhooks/line` | LINE Platform |
+
+**MCP tools** (wrap ตรรกะคิวตัวเดียวกับ REST ทุกประการ): `bccrm_list_waiting`, `bccrm_create_ticket`, `bccrm_call_next`, `bccrm_change_state`, `bccrm_today_stats` — Flutter/agent เชื่อม backend ตัวเดียวได้ทั้ง REST และ MCP
 
 ## ตั้งค่า LINE OA (คร่าว)
 

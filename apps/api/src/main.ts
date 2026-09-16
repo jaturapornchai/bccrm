@@ -8,7 +8,7 @@ async function bootstrap() {
     rawBody: true,
   });
 
-  app.setGlobalPrefix("api", { exclude: ["health", "webhooks/line"] });
+  app.setGlobalPrefix("api", { exclude: ["health", "webhooks/line", "mcp"] });
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, transform: true }),
   );

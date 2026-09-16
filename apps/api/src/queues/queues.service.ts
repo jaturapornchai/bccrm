@@ -1,9 +1,9 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { PrismaService } from "../prisma/prisma.service";
 import {
   TicketState,
   assertTransition,
@@ -12,67 +12,49 @@ import {
   TicketSource as EngineSource,
   type QueueEntry,
 } from "@bccrm/queue-engine";
+import { QUEUE_STORE, type QueueStore, type TicketRecord } from "./store/queue-store";
 import type { CreateTicketDto } from "./dto/queue.dto";
 
 /** วันที่คิว (ตัดเวลาออก) ตาม timezone ร้าน — Phase 1 ใช้ Asia/Bangkok ตรง ๆ */
-function queueDateOf(date = new Date()): Date {
+export function queueDateOf(date = new Date()): Date {
   const bangkok = new Date(date.toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
   return new Date(bangkok.getFullYear(), bangkok.getMonth(), bangkok.getDate());
 }
 
 @Injectable()
 export class QueuesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(QUEUE_STORE) private readonly store: QueueStore) {}
 
   /**
-   * ออกเลขคิว — ทำใน transaction เดียว: อัปเดต DailySequence แล้วสร้างตั๋ว
-   * ป้องกันเลขชนกันแม้มีหลายช่องทาง (kiosk/LIFF/พนักงาน) ออกพร้อมกัน
+   * ออกเลขคิว — nextSequence ต้อง atomic ที่ชั้น store
+   * (memory: ล็อกใน process / prisma: upsert increment ใน transaction)
+   * ป้องกันเลขชนกันแม้มีหลายช่องทาง (kiosk/LIFF/พนักงาน/MCP) ออกพร้อมกัน
    */
-  async createTicket(dto: CreateTicketDto) {
-    const service = await this.prisma.service.findUnique({ where: { id: dto.serviceId } });
+  async createTicket(dto: CreateTicketDto): Promise<TicketRecord> {
+    const service = await this.store.getService(dto.serviceId);
     if (!service || !service.isActive) throw new NotFoundException("ไม่พบบริการนี้");
 
     const queueDate = queueDateOf();
+    const sequence = await this.store.nextSequence(dto.branchId, dto.serviceId, queueDate);
+    const number = formatTicketNumber(service.ticketPrefix, sequence);
 
-    return this.prisma.$transaction(async (tx) => {
-      const seq = await tx.dailySequence.upsert({
-        where: {
-          branchId_serviceId_queueDate: {
-            branchId: dto.branchId,
-            serviceId: dto.serviceId,
-            queueDate,
-          },
-        },
-        create: { branchId: dto.branchId, serviceId: dto.serviceId, queueDate, lastSeq: 1 },
-        update: { lastSeq: { increment: 1 } },
-      });
-
-      const number = formatTicketNumber(service.ticketPrefix, seq.lastSeq);
-
-      return tx.queueTicket.create({
-        data: {
-          branchId: dto.branchId,
-          serviceId: dto.serviceId,
-          counterId: dto.counterId,
-          customerId: dto.customerId,
-          number,
-          queueDate,
-          sequence: seq.lastSeq,
-          source: dto.source,
-          state: dto.source === "LINE_BOOKING" ? "BOOKED" : "WAITING",
-          isVip: dto.isVip ?? false,
-        },
-        include: { service: true, customer: true },
-      });
+    return this.store.createTicket({
+      branchId: dto.branchId,
+      serviceId: dto.serviceId,
+      counterId: dto.counterId,
+      customerId: dto.customerId,
+      number,
+      queueDate,
+      sequence,
+      source: dto.source,
+      state: dto.source === "LINE_BOOKING" ? "BOOKED" : "WAITING",
+      isVip: dto.isVip ?? false,
     });
   }
 
   /** ดึงคิวที่รออยู่ของสาขาในวันนี้ เรียงตามนโยบาย queue-engine */
-  async waitingList(branchId: string) {
-    const tickets = await this.prisma.queueTicket.findMany({
-      where: { branchId, queueDate: queueDateOf(), state: "WAITING" },
-      include: { service: true, customer: true },
-    });
+  async waitingList(branchId: string): Promise<TicketRecord[]> {
+    const tickets = await this.store.findWaiting(branchId, queueDateOf());
 
     const entries: QueueEntry[] = tickets.map((t) => ({
       ticketId: t.id,
@@ -88,20 +70,20 @@ export class QueuesService {
   }
 
   /** เรียกคิวถัดไปเข้าเคาน์เตอร์ */
-  async callNext(branchId: string, counterId: string, staffId: string) {
+  async callNext(branchId: string, counterId: string, staffId: string): Promise<TicketRecord> {
     const [next] = await this.waitingList(branchId);
     if (!next) throw new NotFoundException("ไม่มีคิวที่รออยู่");
 
-    return this.changeState(next.id, "CALLED", { counterId, servedById: staffId, calledAt: new Date() });
+    return this.changeState(next.id, TicketState.Called, { counterId, servedById: staffId, calledAt: new Date() });
   }
 
-  /** เปลี่ยนสถานะคิวตาม state machine ของ queue-engine */
+  /** เปลี่ยนสถานะคิวตาม state machine ของ queue-engine (รับได้ทั้ง "serving" และ "Serving") */
   async changeState(
     ticketId: string,
-    to: keyof typeof TicketState | TicketState,
+    to: TicketState | string,
     extra: Record<string, unknown> = {},
-  ) {
-    const ticket = await this.prisma.queueTicket.findUnique({ where: { id: ticketId } });
+  ): Promise<TicketRecord> {
+    const ticket = await this.store.findTicket(ticketId);
     if (!ticket) throw new NotFoundException("ไม่พบตั๋วคิวนี้");
 
     const from = ticket.state.toLowerCase() as TicketState;
@@ -122,21 +104,14 @@ export class QueuesService {
       extra[stateField[target]] = new Date();
     }
 
-    return this.prisma.queueTicket.update({
-      where: { id: ticketId },
-      data: { state: target.toUpperCase() as never, ...extra },
-      include: { service: true, customer: true, counter: true },
-    });
+    return this.store.updateTicket(ticketId, {
+      state: target.toUpperCase(),
+      ...extra,
+    } as Partial<TicketRecord>);
   }
 
   /** สถิติวันนี้ของสาขา — ใช้บนจอ dashboard */
-  async todayStats(branchId: string) {
-    const queueDate = queueDateOf();
-    const grouped = await this.prisma.queueTicket.groupBy({
-      by: ["state"],
-      where: { branchId, queueDate },
-      _count: true,
-    });
-    return Object.fromEntries(grouped.map((g) => [g.state, g._count]));
+  async todayStats(branchId: string): Promise<Record<string, number>> {
+    return this.store.statsByState(branchId, queueDateOf());
   }
 }
