@@ -1,0 +1,31 @@
+{
+  "name": "@bccrm/line-sdk",
+  "version": "0.1.0",
+  "description": "Flex Message templates ภาษาไทย + webhook helpers สำหรับ LINE OA",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./flex": {
+      "types": "./dist/flex/index.d.ts",
+      "import": "./dist/flex/index.js"
+    },
+    "./webhook": {
+      "types": "./dist/webhook/index.d.ts",
+      "import": "./dist/webhook/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  },
+  "license": "MIT"
+}

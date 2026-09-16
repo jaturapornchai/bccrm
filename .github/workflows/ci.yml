@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  node:
+    name: Typecheck / Test / Build (Node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck ทุก package
+        run: pnpm typecheck
+
+      - name: Unit tests (queue-engine ฯลฯ)
+        run: pnpm test
+
+      - name: Build ทุกแอป
+        run: pnpm build
+
+  flutter:
+    name: Analyze / Test (Flutter)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - working-directory: apps/mobile
+        run: flutter pub get
+
+      - working-directory: apps/mobile
+        run: flutter analyze
+
+      - working-directory: apps/mobile
+        run: flutter test
+
+  docker:
+    name: Docker Compose ขึ้นระบบได้
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build images
+        run: docker compose build
+
+      - name: ยก database + redis
+        run: docker compose up -d postgres redis
+
+      - name: postgres พร้อมใช้งาน
+        run: docker compose exec -T postgres pg_isready -U bccrm

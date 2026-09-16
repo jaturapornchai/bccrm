@@ -1,0 +1,25 @@
+# BCCRM — ข้อมูลตัวอย่างสำหรับเริ่มพัฒนา (dev seed)
+# รันด้วย: pnpm --filter @bccrm/database exec prisma db seed
+# TODO(phase-1): เขียน seed script จริง (สร้าง tenant ตัวอย่าง, สาขา, บริการ A/B, user owner@example.com)
+
+seed:
+  tenant:
+    name: ร้านตัวอย่าง
+    slug: demo
+  branch:
+    name: สาขาหลัก
+  services:
+    - name: บริการทั่วไป
+      ticketPrefix: A
+      avgServiceMinutes: 15
+    - name: บริการพิเศษ (VIP)
+      ticketPrefix: V
+      avgServiceMinutes: 30
+  counters:
+    - name: เคาน์เตอร์ 1
+    - name: เคาน์เตอร์ 2
+  users:
+    - email: owner@example.com
+      password: change-me-please
+      displayName: เจ้าของร้าน
+      role: OWNER

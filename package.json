@@ -1,0 +1,27 @@
+{
+  "name": "bccrm",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ระบบ CRM + Queue สำหรับธุรกิจไทย เชื่อม LINE OA — Open Source (MIT)",
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "db:generate": "pnpm --filter @bccrm/database run generate",
+    "db:migrate": "pnpm --filter @bccrm/database run migrate",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0",
+    "typescript": "^5.6.0",
+    "prettier": "^3.4.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

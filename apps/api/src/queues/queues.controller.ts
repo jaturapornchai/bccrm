@@ -1,0 +1,39 @@
+import { Body, Controller, Get, Param, Patch, Post, Query } from "@nestjs/common";
+import { QueuesService } from "./queues.service";
+import { CallNextDto, CreateTicketDto, ListQueueQuery } from "./dto/queue.dto";
+
+// TODO(phase-2): ใส่ AuthGuard + RBAC ทุก endpoint (ยกเว้น LIFF ที่ใช้ LINE token)
+@Controller("queues")
+export class QueuesController {
+  constructor(private readonly queues: QueuesService) {}
+
+  /** ออกคิวใหม่ (kiosk / staff / LIFF booking) */
+  @Post("tickets")
+  create(@Body() dto: CreateTicketDto) {
+    return this.queues.createTicket(dto);
+  }
+
+  /** รายการคิวที่รออยู่ (เรียงตามนโยบาย) */
+  @Get("waiting")
+  waiting(@Query() query: ListQueueQuery) {
+    return this.queues.waitingList(query.branchId);
+  }
+
+  /** เรียกคิวถัดไป */
+  @Post("call-next")
+  callNext(@Body() dto: CallNextDto) {
+    return this.queues.callNext(dto.branchId, dto.counterId, dto.staffId);
+  }
+
+  /** เปลี่ยนสถานะคิว: serving / done / no_show / cancelled */
+  @Patch("tickets/:id/state/:state")
+  changeState(@Param("id") id: string, @Param("state") state: string) {
+    return this.queues.changeState(id, state as never);
+  }
+
+  /** สถิติวันนี้ */
+  @Get("stats/today")
+  stats(@Query("branchId") branchId: string) {
+    return this.queues.todayStats(branchId);
+  }
+}

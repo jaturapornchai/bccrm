@@ -1,0 +1,23 @@
+{
+  "name": "@bccrm/ui",
+  "version": "0.1.0",
+  "description": "Shared UI components สำหรับ BCCRM (admin + liff)",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/react": "^18.3.0",
+    "react": "^18.3.0"
+  },
+  "license": "MIT"
+}

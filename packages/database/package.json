@@ -1,0 +1,20 @@
+{
+  "name": "@bccrm/database",
+  "version": "0.1.0",
+  "description": "Prisma schema + migrations ของ BCCRM",
+  "scripts": {
+    "generate": "prisma generate",
+    "migrate": "prisma migrate dev",
+    "migrate:deploy": "prisma migrate deploy",
+    "studio": "prisma studio",
+    "build": "prisma generate",
+    "typecheck": "echo 'no typecheck needed'"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.1.0"
+  },
+  "devDependencies": {
+    "prisma": "^6.1.0"
+  },
+  "license": "MIT"
+}

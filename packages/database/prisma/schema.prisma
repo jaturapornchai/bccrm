@@ -1,0 +1,235 @@
+// BCCRM — Prisma schema
+// โมเดลหลัก: Tenant (ร้าน) → Branch (สาขา) → Queue/CRM
+// Multi-tenant ตั้งแต่วันแรก แม้ self-host ร้านเดียวก็ใช้ schema เดียวกัน
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===== โครงสร้างร้านค้า =====
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  plan      String   @default("free") // free = self-host/community
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  branches Branch[]
+  users    User[]
+}
+
+model Branch {
+  id       String @id @default(cuid())
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name     String
+  address  String?
+  phone    String?
+  isActive Boolean @default(true)
+
+  services    Service[]
+  counters    Counter[]
+  lineChannel LineChannel?
+  tickets     QueueTicket[]
+  bookings    Booking[]
+  users       User[]
+
+  @@index([tenantId])
+}
+
+model Service {
+  id          String @id @default(cuid())
+  branchId    String
+  branch      Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  name        String
+  /** prefix เลขคิว เช่น "A" → A001 */
+  ticketPrefix String @default("A")
+  /** เวลาบริการเฉลี่ยโดยประมาณ (นาที) ใช้คำนวณเวลารอ */
+  avgServiceMinutes Int @default(15)
+  isActive    Boolean @default(true)
+
+  tickets QueueTicket[]
+
+  @@index([branchId])
+}
+
+model Counter {
+  id       String @id @default(cuid())
+  branchId String
+  branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  name     String // เช่น "เคาน์เตอร์ 1"
+  isActive Boolean @default(true)
+
+  tickets QueueTicket[]
+
+  @@index([branchId])
+}
+
+// ===== ผู้ใช้ฝั่งร้าน (RBAC) =====
+
+enum StaffRole {
+  OWNER // เจ้าของร้าน
+  MANAGER // ผู้จัดการ
+  STAFF // พนักงานเคาน์เตอร์
+  ADMIN // ผู้ดูแลแพลตฟอร์ม
+}
+
+model User {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branchId     String?
+  branch       Branch?  @relation(fields: [branchId], references: [id])
+  email        String   @unique
+  passwordHash String
+  displayName  String
+  role         StaffRole @default(STAFF)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  servedTickets QueueTicket[] @relation("ServedBy")
+
+  @@index([tenantId])
+}
+
+// ===== LINE =====
+
+model LineChannel {
+  id                 String  @id @default(cuid())
+  branchId           String  @unique
+  branch             Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  channelId          String
+  channelSecret      String // เข้ารหัสก่อนเก็บใน production
+  channelAccessToken String // เข้ารหัสก่อนเก็บใน production
+  liffIdBooking      String?
+  liffIdTicket       String?
+  liffIdProfile      String?
+  isActive           Boolean @default(true)
+}
+
+// ===== ลูกค้า (CRM) =====
+
+model Customer {
+  id         String   @id @default(cuid())
+  /** LINE userId — ตัวตนหลักของลูกค้า */
+  lineUserId String?  @unique
+  displayName String?
+  phone      String?
+  /** consent PDPA — เก็บเวลาและเวอร์ชันเงื่อนไขที่ยินยอม */
+  consentAt      DateTime?
+  consentVersion String?
+  note       String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  tags     CustomerTag[]
+  tickets  QueueTicket[]
+  bookings Booking[]
+}
+
+model Tag {
+  id    String @id @default(cuid())
+  name  String
+  color String @default("#06C755")
+
+  customers CustomerTag[]
+}
+
+model CustomerTag {
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tagId      String
+  tag        Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([customerId, tagId])
+}
+
+// ===== คิว =====
+
+enum TicketSource {
+  LINE_BOOKING
+  WALK_IN_KIOSK
+  STAFF_CREATED
+}
+
+enum TicketState {
+  BOOKED
+  CHECKED_IN
+  WAITING
+  CALLED
+  SERVING
+  DONE
+  NO_SHOW
+  CANCELLED
+  TRANSFERRED
+}
+
+model QueueTicket {
+  id         String       @id @default(cuid())
+  branchId   String
+  branch     Branch       @relation(fields: [branchId], references: [id])
+  serviceId  String
+  service    Service      @relation(fields: [serviceId], references: [id])
+  counterId  String?
+  counter    Counter?     @relation(fields: [counterId], references: [id])
+  customerId String?
+  customer   Customer?    @relation(fields: [customerId], references: [id])
+  servedById String?
+  servedBy   User?        @relation("ServedBy", fields: [servedById], references: [id])
+
+  /** เลขคิวที่แสดง เช่น A042 — unique ต่อสาขาต่อวัน */
+  number     String
+  /** วันที่ของคิว (ตาม timezone ร้าน) ใช้คู่กับ number ทำ unique */
+  queueDate  DateTime     @db.Date
+  /** เลขรันดิบ ใช้ออกเลขถัดไปภายใต้ transaction */
+  sequence   Int
+  source     TicketSource
+  state      TicketState  @default(WAITING)
+  isVip      Boolean      @default(false)
+
+  // บันทึกเวลาทุกจังหวะ — ใช้ทำรายงาน wait time / service time
+  createdAt   DateTime  @default(now())
+  checkedInAt DateTime?
+  calledAt    DateTime?
+  servedAt    DateTime?
+  doneAt      DateTime?
+  cancelledAt DateTime?
+
+  @@unique([branchId, queueDate, number])
+  @@index([branchId, queueDate, state])
+}
+
+model Booking {
+  id          String   @id @default(cuid())
+  branchId    String
+  branch      Branch   @relation(fields: [branchId], references: [id])
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id])
+  /** ช่วงเวลานัด */
+  slotStart   DateTime
+  slotEnd     DateTime
+  status      String   @default("confirmed") // confirmed | cancelled | fulfilled
+  ticketId    String?  @unique // ผูกกับตั๋วเมื่อเช็กอินแล้ว
+  createdAt   DateTime @default(now())
+
+  @@index([branchId, slotStart])
+}
+
+// ===== จำนวนลำดับคิวต่อวัน (ออกเลขภายใต้ transaction) =====
+
+model DailySequence {
+  id        String   @id @default(cuid())
+  branchId  String
+  serviceId String
+  queueDate DateTime @db.Date
+  lastSeq   Int      @default(0)
+
+  @@unique([branchId, serviceId, queueDate])
+}
