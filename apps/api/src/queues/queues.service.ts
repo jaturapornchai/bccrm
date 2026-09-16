@@ -65,9 +65,10 @@ export class QueuesService {
 
     this.gateway.emitQueueUpdate(dto.branchId, { type: "created", ticket });
 
-    // ส่ง LINE Flex Message ถ้ามี lineUserId
+    // หลีกเลี่ยงการ push ถ้าไม่จำเป็น: ตอนจองคิว ลูกค้าเห็นบัตรคิวบนหน้า LIFF อยู่แล้ว (ไม่เปลืองโควต้า)
     const lineUserId = dto.lineUserId ?? (customerId && customerId.startsWith("U") ? customerId : null);
-    if (lineUserId) {
+    const pushOnBooking = process.env.ENABLE_LINE_PUSH_ON_BOOKING === "true";
+    if (lineUserId && pushOnBooking) {
       const aheadCount = state === "WAITING" ? (await this.waitingList(dto.branchId)).length - 1 : 0;
       const estimatedWait = estimateWaitMinutes(Math.max(0, aheadCount), service.avgServiceMinutes);
       const liffUrl = process.env.LIFF_URL ?? "http://localhost:3002";

@@ -32,8 +32,13 @@ export class LineNotifyService {
     private readonly queues: QueuesService,
   ) {}
 
-  /** push ข้อความ (นับโควต้า) */
+  /** push ข้อความ (นับโควต้า LINE OA — ปิดเป็นค่าเริ่มต้นเพื่อหลีกเลี่ยงการเสียโควต้า) */
   async push(lineUserId: string, messages: FlexMessage[]) {
+    // ป้องกันการเสียโควต้า: ถ้าไม่ได้เปิด ENABLE_LINE_PUSH=true หรือเปิด DISABLE_LINE_PUSH=true จะไม่ส่ง push
+    if (process.env.ENABLE_LINE_PUSH !== "true" || process.env.DISABLE_LINE_PUSH === "true") {
+      this.logger.debug(`LINE push ถูกปิดเพื่อประหยัดโควต้า (ENABLE_LINE_PUSH!=true) — ข้ามการส่งไปยัง ${lineUserId}`);
+      return;
+    }
     const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
     if (!token) {
       this.logger.warn(`ยังไม่ได้ตั้งค่า LINE_CHANNEL_ACCESS_TOKEN — ข้ามการส่ง push ไปยัง ${lineUserId}`);
@@ -123,29 +128,32 @@ export class LineNotifyService {
     }
   }
 
-  /** ส่งบัตรคิวหลังออกเลขสำเร็จ (เรียกจาก QueuesService หรือ LIFF) */
+  /** ส่งบัตรคิวหลังออกเลขสำเร็จ (ปิดเป็นค่าเริ่มต้นเพื่อประหยัดโควต้า — ลูกค้าดูผ่าน LIFF อยู่แล้ว) */
   async sendTicketCard(
     lineUserId: string,
     data: Parameters<typeof ticketCardFlex>[0],
   ) {
+    if (process.env.ENABLE_LINE_PUSH_ON_BOOKING !== "true") return;
     await this.push(lineUserId, [ticketCardFlex(data)]);
   }
 
-  /** แจ้งเตือนเมื่อถูกเรียกคิว */
+  /** แจ้งเตือนเมื่อถูกเรียกคิว (ปิดเป็นค่าเริ่มต้นเพื่อประหยัดโควต้า) */
   async sendCalledAlert(
     lineUserId: string,
     ticketNumber: string,
     counterName: string,
     ticketUrl: string,
   ) {
+    if (process.env.ENABLE_LINE_PUSH_ON_CALLED !== "true") return;
     await this.push(lineUserId, [calledFlex(ticketNumber, counterName, ticketUrl)]);
   }
 
-  /** แจ้งเตือนเมื่อใกล้ถึงคิว */
+  /** แจ้งเตือนเมื่อใกล้ถึงคิว (ปิดเป็นค่าเริ่มต้นเพื่อประหยัดโควต้า) */
   async sendAlmostThereAlert(
     lineUserId: string,
     data: Parameters<typeof almostThereFlex>[0],
   ) {
+    if (process.env.ENABLE_LINE_PUSH_ON_ALMOST_THERE !== "true") return;
     await this.push(lineUserId, [almostThereFlex(data)]);
   }
 }
