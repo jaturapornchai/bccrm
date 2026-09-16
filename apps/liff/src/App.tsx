@@ -41,6 +41,13 @@ interface TicketDetails {
   estimatedWaitMinutes: number;
 }
 
+interface CallingInfo {
+  currentNumber: string | null;
+  currentCounter: string | null;
+  currentState: string | null;
+  waitingCount: number;
+}
+
 type TabType = "book" | "ticket" | "chat" | "profile";
 
 // Gentle audio chime for queue call notifications
@@ -91,6 +98,14 @@ export default function App() {
   const [loadingTicket, setLoadingTicket] = useState<boolean>(false);
   const [ticketHistory, setTicketHistory] = useState<TicketRecord[]>([]);
 
+  // Live Calling Queue Info
+  const [callingInfo, setCallingInfo] = useState<CallingInfo>({
+    currentNumber: null,
+    currentCounter: null,
+    currentState: null,
+    waitingCount: 0,
+  });
+
   // Socket
   const socketRef = useRef<Socket | null>(null);
   const [callAlert, setCallAlert] = useState<string | null>(null);
@@ -101,7 +116,7 @@ export default function App() {
   >([
     {
       sender: "ai",
-      text: "สวัสดีค่ะ! น้องบีซี ผู้ช่วย AI อัจฉริยะ (DeepSeek) ยินดีต้อนรับค่ะ\n\nสามารถสอบถามข้อมูลบริการ จองคิว หรือเช็กสถานะคิวสดได้ตลอด 24 ชั่วโมงเลยนะคะ ✨",
+      text: "สวัสดีค่ะคุณลูกค้า น้องบีซียินดีต้อนรับนะคะ 🌿 วันนี้เหนื่อยไหมคะ มีเรื่องอะไรอยากคุยหรือให้บีซีช่วยดูแล ไม่ว่าจะเช็กคิว จองคิว หรืออยากคุยเล่นคลายเครียด บอกได้เลยน้า คุยได้ทุกเรื่องเลยค่ะ บีซีพร้อมรับฟังเสมอค่ะ ☺️✨",
       time: new Date().toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }),
     },
   ]);
@@ -177,7 +192,24 @@ export default function App() {
     }
   }, [profile?.userId, loadActiveTicket]);
 
-  // 4. Realtime Socket connection
+  // 4. Load current calling queue
+  const loadCallingInfo = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/api/queues/current-calling?branchId=${BRANCH_ID}`);
+      if (res.ok) {
+        const data: CallingInfo = await res.json();
+        setCallingInfo(data);
+      }
+    } catch (err) {
+      console.debug("Failed to load calling info", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCallingInfo();
+  }, [loadCallingInfo]);
+
+  // 5. Realtime Socket connection
   useEffect(() => {
     const socket = io(API, { transports: ["websocket", "polling"] });
     socketRef.current = socket;
@@ -187,6 +219,13 @@ export default function App() {
     });
 
     socket.on("call", (data: { number: string; counterName: string }) => {
+      setCallingInfo((prev) => ({
+        ...prev,
+        currentNumber: data.number,
+        currentCounter: data.counterName,
+        currentState: "CALLED",
+      }));
+
       if (currentTicket && currentTicket.ticket.number === data.number) {
         playCallChime();
         setCallAlert(`🔔 ถึงคิวของคุณแล้ว! (${data.number}) กรุณาติดต่อที่ ${data.counterName}`);
@@ -195,6 +234,7 @@ export default function App() {
     });
 
     socket.on("queue_update", () => {
+      loadCallingInfo();
       if (profile?.userId) {
         loadActiveTicket(profile.userId);
       }
@@ -203,9 +243,9 @@ export default function App() {
     return () => {
       socket.disconnect();
     };
-  }, [currentTicket, profile?.userId, loadActiveTicket]);
+  }, [currentTicket, profile?.userId, loadActiveTicket, loadCallingInfo]);
 
-  // 5. Handle Booking
+  // 6. Handle Booking
   const handleBooking = async () => {
     if (!profile) return;
     if (!pdpaConsent) {
@@ -242,7 +282,8 @@ export default function App() {
       const createdTicket: TicketRecord = await res.json();
       setTicketHistory((prev) => [createdTicket, ...prev]);
 
-      // Load full details & switch tab
+      // Reload calling info & active ticket
+      loadCallingInfo();
       await loadActiveTicket(profile.userId);
       setActiveTab("ticket");
     } catch (err: unknown) {
@@ -253,7 +294,7 @@ export default function App() {
     }
   };
 
-  // 6. Handle Cancel Ticket
+  // 7. Handle Cancel Ticket
   const handleCancelTicket = async () => {
     if (!currentTicket) return;
     const confirmCancel = window.confirm(
@@ -268,6 +309,7 @@ export default function App() {
       if (res.ok) {
         alert(`ยกเลิกคิว ${currentTicket.ticket.number} เรียบร้อยแล้ว`);
         setCurrentTicket(null);
+        loadCallingInfo();
         setActiveTab("book");
       }
     } catch {
@@ -422,21 +464,33 @@ export default function App() {
           </div>
         </div>
 
-        {/* Greeting Banner */}
+        {/* Live Calling Ticker & Greeting Bar */}
         <div style={styles.greetingRow}>
           <div>
-            <div style={{ fontSize: 12, color: "#94A3B8" }}>ยินดีต้อนรับ</div>
+            <div style={{ fontSize: 11, color: "#94A3B8" }}>ยินดีต้อนรับ</div>
             <div style={{ fontSize: 15, fontWeight: 700, color: "#FFFFFF" }}>{profile.displayName}</div>
           </div>
-          {currentTicket && (
-            <button
-              style={styles.headerTicketPill}
-              onClick={() => setActiveTab("ticket")}
-            >
-              <span style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: "#06C755", display: "inline-block" }}></span>
-              <span>คิวของคุณ: <strong>{currentTicket.ticket.number}</strong></span>
-            </button>
-          )}
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {/* Header Calling Live Pill */}
+            <div style={styles.liveCallingHeaderBadge}>
+              <span style={styles.callingPulseDot}></span>
+              <span style={{ fontSize: 11, color: "#94A3B8" }}>เรียกถึง:</span>
+              <strong style={{ color: "#4ADE80", fontSize: 13, letterSpacing: 0.5 }}>
+                {callingInfo.currentNumber || "—"}
+              </strong>
+            </div>
+
+            {currentTicket && (
+              <button
+                style={styles.headerTicketPill}
+                onClick={() => setActiveTab("ticket")}
+              >
+                <span style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: "#06C755", display: "inline-block" }}></span>
+                <span>คิวของคุณ: <strong>{currentTicket.ticket.number}</strong></span>
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
@@ -460,7 +514,33 @@ export default function App() {
       <main style={styles.content}>
         {/* ================= TAB 1: BOOK QUEUE ================= */}
         {activeTab === "book" && (
-          <section style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <section style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {/* Live Counter Monitor Card */}
+            <div style={styles.liveMonitorCard}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={styles.speakerIconWrap}>📢</div>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#047857", letterSpacing: 0.5 }}>
+                      สถานะเคาน์เตอร์สด • NOW SERVING
+                    </div>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 2 }}>
+                      <span style={{ fontSize: 13, color: "#334155" }}>กำลังเรียกคิว:</span>
+                      <span style={{ fontSize: 24, fontWeight: 900, color: "#059669", letterSpacing: 1.5 }}>
+                        {callingInfo.currentNumber || "ยังไม่มีคิวเรียก"}
+                      </span>
+                      {callingInfo.currentCounter && (
+                        <span style={styles.counterBadgePill}>{callingInfo.currentCounter}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div style={styles.waitingCountPill}>
+                  <span>รอคิว {callingInfo.waitingCount} คน</span>
+                </div>
+              </div>
+            </div>
+
             {/* Active Ticket Banner */}
             {currentTicket && (
               <div style={styles.activeNoticeCard} onClick={() => setActiveTab("ticket")}>
@@ -705,6 +785,18 @@ export default function App() {
                       </div>
                     </div>
 
+                    {/* Live Called Comparison Bar */}
+                    <div style={styles.compareQueueRow}>
+                      <span style={styles.callingPulseDot}></span>
+                      <span style={{ fontSize: 12, color: "#334155" }}>
+                        ตอนนี้เคาน์เตอร์เรียกถึงคิว:{" "}
+                        <strong style={{ color: "#059669", fontSize: 15, letterSpacing: 0.5 }}>
+                          {callingInfo.currentNumber || "ยังไม่มีคิวเรียก"}
+                        </strong>
+                        {callingInfo.currentCounter ? ` (${callingInfo.currentCounter})` : ""}
+                      </span>
+                    </div>
+
                     {/* Twin Metrics Glass Box */}
                     <div style={styles.twinMetricsRow}>
                       <div style={styles.twinMetricItem}>
@@ -801,7 +893,10 @@ export default function App() {
                     {/* Actions */}
                     <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
                       <button
-                        onClick={() => profile && loadActiveTicket(profile.userId)}
+                        onClick={() => {
+                          loadCallingInfo();
+                          if (profile) loadActiveTicket(profile.userId);
+                        }}
                         style={styles.refreshBtn}
                       >
                         🔄 อัปเดตสถานะสด
@@ -925,15 +1020,15 @@ export default function App() {
                 <div style={styles.chatBotAvatar}>🤖</div>
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <strong style={{ fontSize: 14, color: "#0F172A" }}>น้องบีซี AI Assistant</strong>
+                    <strong style={{ fontSize: 14, color: "#0F172A" }}>น้องบีซี (ผู้ช่วยต้อนรับ)</strong>
                     <span style={styles.onlineDot}></span>
                   </div>
-                  <div style={{ fontSize: 11, color: "#64748B" }}>
-                    DeepSeek AI • พร้อมตอบคำถามและเช็กคิวสด 24 ชม.
+                  <div style={{ fontSize: 11, color: "#059669", fontWeight: 500 }}>
+                    พร้อมคุยเป็นเพื่อน & ดูแลคิวให้คุณ 24 ชม. 🌿
                   </div>
                 </div>
               </div>
-              <span style={styles.aiBadge}>DeepSeek</span>
+              <span style={{ ...styles.aiBadge, backgroundColor: "#10B981" }}>พร้อมดูแล</span>
             </div>
 
             {/* Quick Prompt Chips */}
@@ -948,23 +1043,30 @@ export default function App() {
               <button
                 type="button"
                 style={styles.quickChip}
-                onClick={() => handleSendChatMessage("ที่นี่มีบริการอะไรบ้างและราคาเท่าไหร่?")}
+                onClick={() => handleSendChatMessage("ตอนนี้เรียกถึงคิวไหนแล้วคะ?")}
               >
-                🩺 บริการที่มี
+                📢 เรียกถึงคิวไหนแล้ว
               </button>
               <button
                 type="button"
                 style={styles.quickChip}
-                onClick={() => handleSendChatMessage("คลินิกเปิดบริการกี่โมงถึงกี่โมง?")}
+                onClick={() => handleSendChatMessage("วันนี้เหนื่อยมากเลย ชวนคุยหน่อยได้ไหม?")}
               >
-                ⏰ เวลาทำการ
+                🌿 คุยคลายเครียด
               </button>
               <button
                 type="button"
                 style={styles.quickChip}
-                onClick={() => handleSendChatMessage("จะจองคิวต้องทำอย่างไร?")}
+                onClick={() => handleSendChatMessage("ที่นี่มีบริการอะไรบ้างและมีคุณหมอตรวจไหม?")}
               >
-                📌 วิธีรับบัตรคิว
+                🩺 ข้อมูลบริการ
+              </button>
+              <button
+                type="button"
+                style={styles.quickChip}
+                onClick={() => handleSendChatMessage("จะจองคิวต้องทำอย่างไรบ้างคะ?")}
+              >
+                📌 จองคิวออนไลน์
               </button>
             </div>
 
@@ -1051,7 +1153,7 @@ export default function App() {
             >
               <input
                 type="text"
-                placeholder="พิมพ์คำถาม เช่น ตอนนี้ถึงคิวไหนแล้ว..."
+                placeholder="พิมพ์คุยกับน้องบีซีได้ทุกเรื่องเลยนะคะ..."
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 disabled={isAiTyping}
@@ -1228,6 +1330,23 @@ const styles: Record<string, React.CSSProperties> = {
     paddingTop: 12,
     borderTop: "1px solid rgba(255, 255, 255, 0.08)",
   },
+  liveCallingHeaderBadge: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(15, 23, 42, 0.6)",
+    border: "1px solid rgba(255, 255, 255, 0.15)",
+    padding: "5px 10px",
+    borderRadius: 16,
+  },
+  callingPulseDot: {
+    width: 7,
+    height: 7,
+    borderRadius: "50%",
+    backgroundColor: "#22C55E",
+    display: "inline-block",
+    boxShadow: "0 0 6px #22C55E",
+  },
   headerTicketPill: {
     display: "flex",
     alignItems: "center",
@@ -1245,18 +1364,14 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 16,
     flex: 1,
   },
-  activeNoticeCard: {
-    background: "linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%)",
-    border: "1px solid #A7F3D0",
+  liveMonitorCard: {
+    background: "linear-gradient(135deg, #ECFDF5 0%, #F0FDF4 100%)",
+    border: "1.5px solid #86EFAC",
     borderRadius: 18,
-    padding: "14px 16px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    cursor: "pointer",
-    boxShadow: "0 4px 12px rgba(6, 199, 85, 0.08)",
+    padding: "14px 18px",
+    boxShadow: "0 4px 14px rgba(6, 199, 85, 0.1)",
   },
-  activeNoticeIcon: {
+  speakerIconWrap: {
     width: 44,
     height: 44,
     borderRadius: 12,
@@ -1267,10 +1382,51 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 22,
     boxShadow: "0 2px 6px rgba(6, 199, 85, 0.15)",
   },
+  counterBadgePill: {
+    backgroundColor: "#DCFCE7",
+    color: "#15803D",
+    fontSize: 11,
+    fontWeight: 700,
+    padding: "2px 8px",
+    borderRadius: 12,
+    border: "1px solid #BBF7D0",
+  },
+  waitingCountPill: {
+    backgroundColor: "#FFFFFF",
+    color: "#047857",
+    fontSize: 12,
+    fontWeight: 700,
+    padding: "6px 12px",
+    borderRadius: 14,
+    border: "1px solid #A7F3D0",
+    boxShadow: "0 1px 3px rgba(0,0,0,0.03)",
+  },
+  activeNoticeCard: {
+    background: "linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%)",
+    border: "1px solid #BFDBFE",
+    borderRadius: 18,
+    padding: "14px 16px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    cursor: "pointer",
+    boxShadow: "0 4px 12px rgba(37, 99, 235, 0.08)",
+  },
+  activeNoticeIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 22,
+    boxShadow: "0 2px 6px rgba(37, 99, 235, 0.15)",
+  },
   activeNoticeArrow: {
     fontSize: 12,
     fontWeight: 700,
-    color: "#059669",
+    color: "#1D4ED8",
   },
   heroCard: {
     background: "linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%)",
@@ -1533,7 +1689,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   ticketNumberSection: {
     textAlign: "center",
-    padding: "20px 0 14px 0",
+    padding: "20px 0 10px 0",
   },
   ticketNumberSubLabel: {
     fontSize: 12,
@@ -1558,13 +1714,24 @@ const styles: Record<string, React.CSSProperties> = {
     display: "inline-block",
     animation: "ripple 2s infinite ease-in-out",
   },
+  compareQueueRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    backgroundColor: "#F0FDF4",
+    border: "1px solid #BBF7D0",
+    borderRadius: 12,
+    padding: "8px 14px",
+    margin: "8px 0 12px 0",
+  },
   twinMetricsRow: {
     display: "flex",
     backgroundColor: "#F8FAFC",
     border: "1px solid #E2E8F0",
     borderRadius: 16,
     padding: "14px 12px",
-    marginTop: 10,
+    marginTop: 6,
   },
   twinMetricItem: {
     flex: 1,

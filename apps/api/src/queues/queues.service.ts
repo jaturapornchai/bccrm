@@ -221,4 +221,17 @@ export class QueuesService {
   async todayStats(branchId: string): Promise<Record<string, number>> {
     return this.store.statsByState(branchId, queueDateOf());
   }
+
+  /** ข้อมูลคิวที่กำลังเรียก/รับบริการอยู่ในปัจจุบันของสาขา */
+  async getCurrentCalling(branchId: string) {
+    const active = await this.store.findCurrentCalling(branchId, queueDateOf());
+    const waiting = await this.waitingList(branchId);
+    return {
+      callingTickets: active,
+      currentNumber: active.length > 0 ? active[0].number : null,
+      currentCounter: active.length > 0 ? (active[0].counterId || "เคาน์เตอร์ 1") : null,
+      currentState: active.length > 0 ? active[0].state : null,
+      waitingCount: waiting.length,
+    };
+  }
 }

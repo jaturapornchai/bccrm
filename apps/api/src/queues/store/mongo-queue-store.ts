@@ -114,6 +114,18 @@ export class MongoQueueStore implements QueueStore {
     return (await this.tickets()).find({ branchId, queueDate, state: "WAITING" }).toArray();
   }
 
+  async findCurrentCalling(branchId: string, queueDate: Date): Promise<TicketRecord[]> {
+    await this.ensureSetup();
+    return (await this.tickets())
+      .find({
+        branchId,
+        queueDate,
+        state: { $in: ["CALLED", "SERVING"] },
+      })
+      .sort({ calledAt: -1, servedAt: -1 })
+      .toArray();
+  }
+
   async findTicket(id: string): Promise<TicketRecord | null> {
     await this.ensureSetup();
     return (await this.tickets()).findOne({ id });

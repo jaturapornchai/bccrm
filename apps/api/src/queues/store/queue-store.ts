@@ -58,6 +58,7 @@ export interface QueueStore {
   nextSequence(branchId: string, serviceId: string, queueDate: Date): Promise<number>;
   createTicket(data: CreateTicketData): Promise<TicketRecord>;
   findWaiting(branchId: string, queueDate: Date): Promise<TicketRecord[]>;
+  findCurrentCalling(branchId: string, queueDate: Date): Promise<TicketRecord[]>;
   findTicket(id: string): Promise<TicketRecord | null>;
   findActiveCustomerTicket(branchId: string, customerId: string, queueDate: Date): Promise<TicketRecord | null>;
   updateTicket(id: string, data: Partial<TicketRecord>): Promise<TicketRecord>;

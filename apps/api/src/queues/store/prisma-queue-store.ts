@@ -41,6 +41,13 @@ export class PrismaQueueStore implements QueueStore {
     }) as Promise<TicketRecord[]>;
   }
 
+  findCurrentCalling(branchId: string, queueDate: Date): Promise<TicketRecord[]> {
+    return this.prisma.queueTicket.findMany({
+      where: { branchId, queueDate, state: { in: ["CALLED", "SERVING"] } },
+      orderBy: { calledAt: "desc" },
+    }) as Promise<TicketRecord[]>;
+  }
+
   findTicket(id: string): Promise<TicketRecord | null> {
     return this.prisma.queueTicket.findUnique({ where: { id } }) as Promise<TicketRecord | null>;
   }

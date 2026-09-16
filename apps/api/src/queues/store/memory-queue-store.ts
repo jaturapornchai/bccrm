@@ -68,6 +68,20 @@ export class MemoryQueueStore implements QueueStore {
     );
   }
 
+  findCurrentCalling(branchId: string, queueDate: Date): Promise<TicketRecord[]> {
+    const day = queueDate.getTime();
+    return Promise.resolve(
+      [...this.tickets.values()]
+        .filter(
+          (t) =>
+            t.branchId === branchId &&
+            t.queueDate.getTime() === day &&
+            (t.state === "CALLED" || t.state === "SERVING"),
+        )
+        .sort((a, b) => (b.calledAt?.getTime() ?? 0) - (a.calledAt?.getTime() ?? 0)),
+    );
+  }
+
   findTicket(id: string): Promise<TicketRecord | null> {
     return Promise.resolve(this.tickets.get(id) ?? null);
   }

@@ -63,4 +63,10 @@ export class QueuesController {
   stats(@Query("branchId") branchId: string) {
     return this.queues.todayStats(branchId);
   }
+
+  /** คิวที่กำลังเรียก/รับบริการอยู่ในขณะนี้ */
+  @Get("current-calling")
+  currentCalling(@Query("branchId") branchId: string) {
+    return this.queues.getCurrentCalling(branchId || "demo");
+  }
 }
