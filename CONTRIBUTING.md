@@ -11,7 +11,7 @@
 
 ## กติกาโค้ด
 
-- **ภาษา:** TypeScript ทุกส่วนที่เป็น JS/TS, Dart สำหรับ Flutter
+- **ภาษา:** TypeScript ทุกส่วน
 - **คอมเมนต์และ docs:** ภาษาไทยได้เต็มที่ (กลุ่มเป้าหมายคือคนไทย) — ชื่อตัวแปร/ฟังก์ชันใช้อังกฤษ
 - **Commit message:** รูปแบบ [Conventional Commits](https://www.conventionalcommits.org/) เช่น
   `feat(queue): เพิ่มกติกาดันคิวที่รอนานเกิน 30 นาที`

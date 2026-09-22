@@ -61,6 +61,7 @@ export interface QueueStore {
   findCurrentCalling(branchId: string, queueDate: Date): Promise<TicketRecord[]>;
   findTicket(id: string): Promise<TicketRecord | null>;
   findActiveCustomerTicket(branchId: string, customerId: string, queueDate: Date): Promise<TicketRecord | null>;
-  updateTicket(id: string, data: Partial<TicketRecord>): Promise<TicketRecord>;
+  /** expectedState = compare-and-set: คืน null ถ้าสถานะถูกเปลี่ยนไปก่อนแล้ว (พนักงานหลายเครื่องกดพร้อมกัน) */
+  updateTicket(id: string, data: Partial<TicketRecord>, expectedState?: string): Promise<TicketRecord | null>;
   statsByState(branchId: string, queueDate: Date): Promise<Record<string, number>>;
 }

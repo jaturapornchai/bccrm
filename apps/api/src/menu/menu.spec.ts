@@ -29,7 +29,7 @@ function fakeMongo() {
 const item = (itemId: string, quantity: number, price = 1) => ({ itemId, name: "x", price, quantity });
 
 describe("createOrder", () => {
-  const svc = new MenuService(fakeMongo());
+  const svc = new MenuService(fakeMongo(), { emitOrder: () => undefined } as never);
 
   it("ใช้ราคาจากเมนู server ไม่ใช่ราคาที่ client ส่งมา", async () => {
     const order = await svc.createOrder({ items: [item("dish-chick-spicy", 2, 1)] } as CreateOrderDto);

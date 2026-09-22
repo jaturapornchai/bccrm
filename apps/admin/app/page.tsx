@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { io } from "socket.io-client";
 import {
   DEMO_TICKETS,
   SOURCE_LABEL,
@@ -10,11 +11,27 @@ import {
   type DemoTicket,
 } from "../lib/demo";
 
+// prod build ตั้งเป็น "" → เรียก /api และ /socket.io โดเมนเดียวกัน (Caddy proxy ไป API)
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 const BRANCH_ID = "demo";
-const COUNTER_ID = "counter-1";
+const COUNTER_ID = "เคาน์เตอร์ต้อนรับ"; // แสดงบน LINE push/บัตรคิวลูกค้า
 const STAFF_ID = "staff-demo";
 const REFRESH_MS = 10_000;
+const LATE_MIN = 30;
+const ACTIVITY_MAX = 30;
+const TOKEN_KEY = "bccrm_token";
+const USER_KEY = "bccrm_user";
+
+/** fetch ไป API พร้อมแนบ token พนักงาน */
+const api = (path: string, init: RequestInit = {}) =>
+  fetch(`${API}${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY) ?? ""}`,
+      ...init.headers,
+    },
+  });
 
 interface ApiTicket {
   id: string;
@@ -32,12 +49,21 @@ interface ApiService {
   ticketPrefix: string;
 }
 
+interface OrderItem {
+  name: string;
+  quantity: number;
+  note?: string;
+  spiciness?: string;
+  sauce?: string;
+  sweetness?: string;
+}
+
 interface ApiOrder {
   id: string;
   orderNumber: string;
   ticketId?: string;
   totalAmount: number;
-  items: Array<{ name: string; quantity: number; note?: string }>;
+  items: OrderItem[];
 }
 
 interface Row {
@@ -50,7 +76,46 @@ interface Row {
   waitedMin: number;
 }
 
+interface Activity {
+  at: Date;
+  text: string;
+  color: string;
+}
+
+// ค่าเดียวกับที่ LIFF ส่งมา (apps/liff OPTION_LABELS) — "normal" ไม่แสดง ให้ครัวเห็นเฉพาะที่ต่างจากปกติ
+const OPTION_LABELS: Record<string, string> = {
+  "non-spicy": "ไม่เผ็ด",
+  mild: "เผ็ดน้อย",
+  "extra-spicy": "เผ็ดเกาหลี x2",
+  spicy: "ซอสเกาหลีเผ็ดหวาน",
+  garlic: "ซอสการ์ลิคซอย",
+  snow: "ซอสสโนว์ออเนียน",
+  original: "ออริจินัล",
+  "less-sweet": "หวานน้อย 50%",
+};
+
+const STAT_ORDER = ["WAITING", "CALLED", "SERVING", "DONE", "NO_SHOW", "CANCELLED", "BOOKED"];
+
 const minutesSince = (iso: string | number) => Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+const itemDetail = (i: OrderItem) =>
+  [i.spiciness, i.sauce, i.sweetness].map((v) => v && OPTION_LABELS[v]).concat(i.note).filter(Boolean).join(" · ");
+const timeText = (d: Date) => d.toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" });
+const baht = (n: number) => `฿${n.toLocaleString("th-TH")}`;
+
+/** รวมจำนวนจานตามเมนู (+ตัวเลือก) เรียงมากไปน้อย */
+function tally(orders: ApiOrder[], withDetail: boolean) {
+  const rows = new Map<string, { name: string; detail: string; qty: number }>();
+  for (const order of orders) {
+    for (const item of order.items) {
+      const detail = withDetail ? itemDetail(item) : "";
+      const key = `${item.name}|${detail}`;
+      const row = rows.get(key) ?? { name: item.name, detail, qty: 0 };
+      row.qty += item.quantity;
+      rows.set(key, row);
+    }
+  }
+  return [...rows.values()].sort((a, b) => b.qty - a.qty);
+}
 
 function Badge({ state }: { state: string }) {
   const { label, color } = STATE_LABEL[state] ?? { label: state, color: "#6B7280" };
@@ -58,6 +123,7 @@ function Badge({ state }: { state: string }) {
     <span
       style={{
         display: "inline-block",
+        width: "fit-content",
         padding: "2px 10px",
         borderRadius: 9999,
         backgroundColor: `${color}1A`,
@@ -94,9 +160,35 @@ function ActionButton({ label, color, onClick, disabled }: { label: string; colo
   );
 }
 
+function Kpi({ icon, label, value, sub, color }: { icon: string; label: string; value: ReactNode; sub?: string; color: string }) {
+  return (
+    <div className="card kpi" style={{ borderTop: `4px solid ${color}` }}>
+      <div className="kpi-label">
+        {icon} {label}
+      </div>
+      <div className="kpi-value" style={{ color }}>
+        {value}
+      </div>
+      {sub && <div className="kpi-sub">{sub}</div>}
+    </div>
+  );
+}
+
+function Panel({ title, right, children }: { title: string; right?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="card panel">
+      <div className="panel-head">
+        <h2>{title}</h2>
+        {right}
+      </div>
+      {children}
+    </section>
+  );
+}
+
 /** สรุปออเดอร์ล่วงหน้าของคิว — พนักงานเห็นว่าต้องเตรียมอะไรก่อนลูกค้าถึงโต๊ะ */
 function PreorderSummary({ orders }: { orders: ApiOrder[] }) {
-  if (orders.length === 0) return <span style={{ color: "#9CA3AF" }}>ไม่มีออเดอร์ล่วงหน้า</span>;
+  if (orders.length === 0) return <span style={{ color: "#9CA3AF", fontSize: 13 }}>ไม่มีออเดอร์ล่วงหน้า</span>;
   const total = orders.reduce((sum, o) => sum + o.totalAmount, 0);
   return (
     <div style={{ fontSize: 13, lineHeight: 1.5 }}>
@@ -104,21 +196,95 @@ function PreorderSummary({ orders }: { orders: ApiOrder[] }) {
         o.items.map((item, i) => (
           <div key={`${o.id}-${i}`}>
             {item.name} × {item.quantity}
-            {item.note && <span style={{ color: "#DC2626" }}> ({item.note})</span>}
+            {itemDetail(item) && <span style={{ color: "#B45309" }}> · {itemDetail(item)}</span>}
           </div>
         )),
       )}
       <div style={{ fontWeight: 700, marginTop: 2 }}>
-        {orders.map((o) => o.orderNumber).join(", ")} · ฿{total}
+        {orders.map((o) => o.orderNumber).join(", ")} · {baht(total)}
       </div>
     </div>
   );
 }
 
+function TicketRow({ t, table, orders, actions }: { t: Row; table: string; orders?: ReactNode; actions?: ReactNode }) {
+  return (
+    <div className="trow">
+      <div className="tnum">
+        {t.number} {t.isVip && <span title="VIP">⭐</span>}
+      </div>
+      <div className="tmeta">
+        <Badge state={t.state} />
+        <span>{[table, SOURCE_LABEL[t.source] ?? t.source].filter(Boolean).join(" · ")}</span>
+        <span className={t.waitedMin >= LATE_MIN ? "late" : undefined}>⏱ {t.waitedMin} นาทีตั้งแต่เข้าคิว</span>
+      </div>
+      {orders && <div className="torder">{orders}</div>}
+      {actions && <div className="tact">{actions}</div>}
+    </div>
+  );
+}
+
+/** หน้า login พนักงาน */
+function LoginForm({ onLogin, onDemo }: { onLogin: (name: string) => void; onDemo: () => void }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const input = { width: "100%", padding: "12px 14px", fontSize: 16, borderRadius: 10, border: "1px solid #D1D5DB", marginTop: 6 } as const;
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(res.status < 500 ? "อีเมลหรือรหัสผ่านไม่ถูกต้อง" : "เซิร์ฟเวอร์ขัดข้อง ลองใหม่อีกครั้ง");
+      localStorage.setItem(TOKEN_KEY, body.accessToken);
+      localStorage.setItem(USER_KEY, JSON.stringify(body.user));
+      onLogin(body.user?.displayName ?? email);
+    } catch (err) {
+      setError(err instanceof TypeError ? "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้" : (err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="card" style={{ maxWidth: 400, margin: "80px auto", padding: 28 }}>
+      <h1 style={{ margin: 0 }}>🍗 โซมายด์</h1>
+      <p style={{ color: "#666", marginTop: 4 }}>เข้าสู่ระบบหน้าจอพนักงาน</p>
+      <form onSubmit={submit} style={{ marginTop: 24, display: "grid", gap: 14 }}>
+        <label>
+          อีเมล
+          <input type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} style={input} />
+        </label>
+        <label>
+          รหัสผ่าน
+          <input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} style={input} />
+        </label>
+        {error && <div style={{ color: "#DC2626", fontSize: 14 }}>{error}</div>}
+        <button type="submit" disabled={loading} style={{ padding: 14, borderRadius: 10, border: "none", background: "#E11D48", color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer", opacity: loading ? 0.6 : 1 }}>
+          {loading ? "กำลังเข้าสู่ระบบ…" : "เข้าสู่ระบบ"}
+        </button>
+      </form>
+      <button onClick={onDemo} style={{ marginTop: 16, background: "none", border: "none", color: "#6B7280", textDecoration: "underline", cursor: "pointer" }}>
+        ทดลองโหมดสาธิต (ไม่ต้องเชื่อม backend)
+      </button>
+    </main>
+  );
+}
+
 /**
- * หน้าจอพนักงานร้าน — เชื่อม API จริงถ้ามี, ถ้าไม่ได้ตกเข้าโหมดสาธิตอัตโนมัติ
+ * Dashboard พนักงานร้าน — เปิดพร้อมกันได้หลายเครื่อง ทุกเครื่องเห็นสถานะเดียวกันแบบ realtime
+ * (socket.io + poll สำรอง) ถ้าเชื่อม API ไม่ได้ตกเข้าโหมดสาธิตอัตโนมัติ
  */
 export default function DashboardPage() {
+  const [staffName, setStaffName] = useState<string | null | undefined>(undefined);
   const [demo, setDemo] = useState<boolean | null>(null);
   const [stats, setStats] = useState<Record<string, number>>({});
   const [waiting, setWaiting] = useState<Row[]>([]);
@@ -129,16 +295,20 @@ export default function DashboardPage() {
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [demoTickets, setDemoTickets] = useState<DemoTicket[]>(DEMO_TICKETS);
   const [busy, setBusy] = useState(false);
+  const [connected, setConnected] = useState(false);
+  const [staffOnline, setStaffOnline] = useState(0);
+  const [activity, setActivity] = useState<Activity[]>([]);
+  const [now, setNow] = useState(() => new Date());
 
   const loadFromApi = useCallback(async () => {
-    const urls = [
-      `${API}/api/queues/stats/today?branchId=${BRANCH_ID}`,
-      `${API}/api/queues/waiting?branchId=${BRANCH_ID}`,
-      `${API}/api/queues/current-calling?branchId=${BRANCH_ID}`,
-      `${API}/api/queues/services?branchId=${BRANCH_ID}`,
-      `${API}/api/menu/orders/today?branchId=${BRANCH_ID}`,
+    const paths = [
+      `/api/queues/stats/today?branchId=${BRANCH_ID}`,
+      `/api/queues/waiting?branchId=${BRANCH_ID}`,
+      `/api/queues/current-calling?branchId=${BRANCH_ID}`,
+      `/api/queues/services?branchId=${BRANCH_ID}`,
+      `/api/menu/orders/today?branchId=${BRANCH_ID}`,
     ];
-    const responses = await Promise.all(urls.map((u) => fetch(u)));
+    const responses = await Promise.all(paths.map((p) => api(p)));
     if (responses.some((r) => !r.ok)) throw new Error("API error");
     const [statsJson, waitingJson, callingJson, servicesJson, ordersJson] = await Promise.all(
       responses.map((r) => r.json()),
@@ -180,15 +350,47 @@ export default function DashboardPage() {
   }, [demoTickets]);
 
   useEffect(() => {
-    loadFromApi().catch(loadDemo);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const saved = localStorage.getItem(USER_KEY);
+    setStaffName(saved ? (JSON.parse(saved).displayName ?? "พนักงาน") : null);
+    const clock = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(clock);
   }, []);
 
-  // ลูกค้าจองผ่าน LINE ได้ตลอด — รีเฟรชเองให้พนักงานไม่ต้องกดโหลดหน้าใหม่
+  useEffect(() => {
+    if (staffName) loadFromApi().catch(loadDemo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staffName]);
+
+  // ทุกเครื่องเห็นการเปลี่ยนแปลงของกันและกันผ่าน socket (ห้อง staff:<branch>) + poll สำรองเผื่อ socket หลุด
   useEffect(() => {
     if (demo !== false) return;
-    const timer = setInterval(() => loadFromApi().catch(() => undefined), REFRESH_MS);
-    return () => clearInterval(timer);
+    const reload = () => loadFromApi().catch(() => undefined);
+    const log = (text: string, color = "#475569") =>
+      setActivity((prev) => [{ at: new Date(), text, color }, ...prev].slice(0, ACTIVITY_MAX));
+    const socket = io(API || window.location.origin, { transports: ["websocket", "polling"] });
+    socket.on("connect", () => {
+      setConnected(true);
+      socket.emit("join-staff", BRANCH_ID);
+    });
+    socket.on("disconnect", () => setConnected(false));
+    socket.on("staff:count", (count: number) => setStaffOnline(count));
+    socket.on("queue:update", (payload: { type?: string; ticket?: ApiTicket }) => {
+      const t = payload.ticket;
+      if (t) {
+        const state = STATE_LABEL[t.state] ?? { label: t.state, color: "#475569" };
+        log(payload.type === "created" ? `🎟️ คิวใหม่ ${t.number}` : `${t.number} → ${state.label}`, state.color);
+      }
+      reload();
+    });
+    socket.on("order:new", (payload: { orderNumber: string; totalAmount: number }) => {
+      log(`🧾 ออเดอร์ล่วงหน้า ${payload.orderNumber} · ${baht(payload.totalAmount)}`, "#059669");
+      reload();
+    });
+    const timer = setInterval(reload, REFRESH_MS);
+    return () => {
+      clearInterval(timer);
+      socket.disconnect();
+    };
   }, [demo, loadFromApi]);
 
   useEffect(() => {
@@ -213,171 +415,224 @@ export default function DashboardPage() {
       return;
     }
     await run(() =>
-      fetch(`${API}/api/queues/call-next`, {
+      api("/api/queues/call-next", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ branchId: BRANCH_ID, counterId: COUNTER_ID, staffId: STAFF_ID }),
       }),
     );
   };
 
   const changeState = (ticketId: string, state: string) =>
-    run(() => fetch(`${API}/api/queues/tickets/${ticketId}/state/${state}`, { method: "PATCH" }));
+    run(() => api(`/api/queues/tickets/${ticketId}/state/${state}`, { method: "PATCH" }));
 
+  const cancelTicket = (t: Row) => {
+    if (confirm(`ยกเลิกคิว ${t.number}?`)) void run(() => api(`/api/queues/tickets/${t.id}/cancel`, { method: "POST" }));
+  };
+
+  const logout = () => {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    setDemo(null);
+    setStaffName(null);
+  };
+
+  if (staffName === undefined) return null;
+  if (staffName === null && !demo) {
+    return <LoginForm onLogin={setStaffName} onDemo={loadDemo} />;
+  }
   if (demo === null) {
     return <main style={{ padding: 24 }}>กำลังโหลด…</main>;
   }
 
-  const total = Object.values(stats).reduce((a, b) => a + b, 0);
-  const statOrder = ["SERVING", "CALLED", "WAITING", "BOOKED", "DONE", "NO_SHOW", "CANCELLED"];
+  const totalTickets = Object.values(stats).reduce((a, b) => a + b, 0);
   const serviceName = (id?: string) => services.find((s) => s.id === id)?.name.replace(/\s*\(.*\)/, "") ?? "";
   const ordersOf = (ticketId: string) => orders.filter((o) => o.ticketId === ticketId);
   const visibleWaiting = tableFilter === "all" ? waiting : waiting.filter((t) => t.serviceId === tableFilter);
-  const cell = { padding: 10, verticalAlign: "top" } as const;
+  const activeIds = new Set([...waiting, ...calling].map((t) => t.id));
+  const kitchen = tally(orders.filter((o) => o.ticketId && activeIds.has(o.ticketId)), true);
+  const topDishes = tally(orders, false).slice(0, 5);
+  const revenue = orders.reduce((sum, o) => sum + o.totalAmount, 0);
+  const longestWait = waiting.reduce((max, t) => Math.max(max, t.waitedMin), 0);
+  const avgWait = waiting.length ? Math.round(waiting.reduce((sum, t) => sum + t.waitedMin, 0) / waiting.length) : 0;
 
   return (
-    <main style={{ maxWidth: 1100, margin: "0 auto", padding: 24 }}>
-      <header style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <h1 style={{ margin: 0 }}>🍗 โซมายด์ — หน้าจอพนักงาน</h1>
+    <>
+      <header className="topbar">
+        <h1>🍗 โซมายด์ · Staff Dashboard</h1>
         {demo ? (
-          <span style={{ padding: "4px 12px", borderRadius: 9999, background: "#FEF3C7", color: "#92400E", fontSize: 13, fontWeight: 600 }}>
+          <span className="pill" style={{ background: "#FEF3C7", color: "#92400E" }}>
             โหมดสาธิต — ไม่ได้เชื่อม backend
           </span>
         ) : (
-          <span style={{ padding: "4px 12px", borderRadius: 9999, background: "#D1FAE5", color: "#065F46", fontSize: 13, fontWeight: 600 }}>
-            ● ออนไลน์ · อัปเดต {updatedAt?.toLocaleTimeString("th-TH")}
-          </span>
+          <>
+            <span className="pill">{connected ? "🟢 เรียลไทม์" : "🟡 กำลังเชื่อมต่อใหม่ (อัปเดตทุก 10 วิ)"}</span>
+            <span className="pill">🖥️ พนักงานออนไลน์ {staffOnline} เครื่อง</span>
+            <span className="pill">อัปเดต {updatedAt ? timeText(updatedAt) : "-"}</span>
+          </>
         )}
+        <span className="spacer">
+          🕒 {timeText(now)} · {demo ? "โหมดสาธิต" : `👤 ${staffName}`}{" "}
+          <button className="ghost" onClick={logout}>
+            {demo ? "กลับหน้าเข้าสู่ระบบ" : "ออกจากระบบ"}
+          </button>
+        </span>
       </header>
-      <p style={{ color: "#666" }}>สถิติคิววันนี้ · รวม {total} คิว · ออเดอร์ล่วงหน้า {orders.length} บิล</p>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 12, marginTop: 8 }}>
-        {statOrder.filter((s) => stats[s]).map((state) => (
-          <div key={state} style={{ border: "1px solid #eee", borderRadius: 12, padding: 16 }}>
-            <Badge state={state} />
-            <div style={{ fontSize: 32, fontWeight: 700, marginTop: 8 }}>{stats[state]}</div>
+      <main className="wrap">
+        <div className="kpis">
+          <Kpi icon="⏳" label="รอเรียก" value={waiting.length} sub={waiting.length ? `เฉลี่ย ${avgWait} นาที` : "ไม่มีคิวค้าง"} color="#D97706" />
+          <Kpi icon="🔔" label="เรียกแล้ว" value={stats.CALLED ?? 0} sub="รอลูกค้ามาที่ร้าน" color="#E11D48" />
+          <Kpi icon="🍽️" label="กำลังนั่งทาน" value={stats.SERVING ?? 0} color="#7C3AED" />
+          <Kpi icon="✅" label="เสร็จแล้ววันนี้" value={stats.DONE ?? 0} sub={`ไม่มา ${stats.NO_SHOW ?? 0} · ยกเลิก ${stats.CANCELLED ?? 0}`} color="#059669" />
+          {!demo && (
+            <>
+              <Kpi icon="🧾" label="ออเดอร์ล่วงหน้า" value={orders.length} sub={`${tally(orders, false).reduce((s, r) => s + r.qty, 0)} จาน`} color="#0284C7" />
+              <Kpi icon="💰" label="ยอดสั่งล่วงหน้าวันนี้" value={baht(revenue)} sub={orders.length ? `เฉลี่ย ${baht(Math.round(revenue / orders.length))}/บิล` : undefined} color="#0F766E" />
+            </>
+          )}
+          <Kpi icon="⌛" label="รอนานสุด" value={`${longestWait} นาที`} sub={longestWait >= LATE_MIN ? "⚠️ เกิน 30 นาที" : "ปกติ"} color={longestWait >= LATE_MIN ? "#DC2626" : "#475569"} />
+        </div>
+
+        <Panel title={`📊 สถานะคิววันนี้ · รวม ${totalTickets} คิว`}>
+          <div className="stack">
+            {STAT_ORDER.filter((s) => stats[s]).map((s) => (
+              <div key={s} title={`${STATE_LABEL[s]?.label ?? s}: ${stats[s]}`} style={{ flex: stats[s], background: STATE_LABEL[s]?.color ?? "#94A3B8" }} />
+            ))}
           </div>
-        ))}
-      </div>
+          <div className="legend">
+            {STAT_ORDER.filter((s) => stats[s]).map((s) => (
+              <span key={s}>
+                <span className="dot" style={{ background: STATE_LABEL[s]?.color ?? "#94A3B8" }} />
+                {STATE_LABEL[s]?.label ?? s} <b>{stats[s]}</b>
+              </span>
+            ))}
+            {totalTickets === 0 && <span>ยังไม่มีคิววันนี้</span>}
+          </div>
+          {!demo && services.length > 0 && (
+            <div className="svc-grid">
+              {services.map((s) => {
+                const svcWaiting = waiting.filter((t) => t.serviceId === s.id);
+                const oldest = svcWaiting.reduce((max, t) => Math.max(max, t.waitedMin), 0);
+                return (
+                  <div key={s.id} className="svc">
+                    <b>{serviceName(s.id)}</b>
+                    รอ <b style={{ display: "inline", color: "#D97706" }}>{svcWaiting.length}</b> · เรียก/ทาน{" "}
+                    {calling.filter((t) => t.serviceId === s.id).length}
+                    <div className={oldest >= LATE_MIN ? "late" : undefined}>{svcWaiting.length ? `รอนานสุด ${oldest} นาที` : "ว่าง"}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Panel>
 
-      {!demo && (
-        <section style={{ marginTop: 32 }}>
-          <h2 style={{ margin: 0, fontSize: 18 }}>🔔 เรียกแล้ว / กำลังนั่งทาน ({calling.length})</h2>
-          <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 12 }}>
-            <tbody>
-              {calling.map((t) => (
-                <tr key={t.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                  <td style={{ ...cell, fontWeight: 700, fontSize: 18, width: 90 }}>{t.number}</td>
-                  <td style={{ ...cell, width: 140 }}>
-                    <Badge state={t.state} />
-                    <div style={{ color: "#666", fontSize: 13, marginTop: 4 }}>{serviceName(t.serviceId)}</div>
-                  </td>
-                  <td style={cell}><PreorderSummary orders={ordersOf(t.id)} /></td>
-                  <td style={{ ...cell, textAlign: "right" }}>
-                    <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap" }}>
-                      {t.state === "CALLED" && (
+        <div className="cols">
+          <div className="stackcol">
+            {!demo && (
+              <Panel title={`🔔 เรียกแล้ว / กำลังนั่งทาน (${calling.length})`}>
+                {calling.map((t) => (
+                  <TicketRow
+                    key={t.id}
+                    t={t}
+                    table={serviceName(t.serviceId)}
+                    orders={<PreorderSummary orders={ordersOf(t.id)} />}
+                    actions={
+                      t.state === "CALLED" ? (
                         <>
                           <ActionButton label="✅ นั่งแล้ว" color="#2563EB" disabled={busy} onClick={() => changeState(t.id, "serving")} />
                           <ActionButton label="ไม่มา" color="#9CA3AF" disabled={busy} onClick={() => changeState(t.id, "no_show")} />
                         </>
-                      )}
-                      {t.state === "SERVING" && (
+                      ) : (
                         <ActionButton label="🧾 เสร็จ / เช็คบิล" color="#059669" disabled={busy} onClick={() => changeState(t.id, "done")} />
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {calling.length === 0 && (
-                <tr><td style={{ padding: 16, color: "#9CA3AF" }}>ยังไม่มีคิวที่เรียก</td></tr>
-              )}
-            </tbody>
-          </table>
-        </section>
-      )}
-
-      <section style={{ marginTop: 32 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <h2 style={{ margin: 0, fontSize: 18 }}>⏳ คิวที่รอเรียก ({waiting.length})</h2>
-          <button
-            onClick={callNext}
-            disabled={busy || waiting.length === 0}
-            style={{
-              padding: "10px 20px",
-              borderRadius: 10,
-              border: "none",
-              backgroundColor: waiting.length === 0 ? "#D1D5DB" : "#06C755",
-              color: "#fff",
-              fontSize: 15,
-              fontWeight: 700,
-              cursor: waiting.length === 0 ? "default" : "pointer",
-            }}
-          >
-            📢 เรียกคิวถัดไป (เก่าสุด)
-          </button>
-        </div>
-
-        {!demo && services.length > 0 && (
-          <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-            {[{ id: "all", label: "ทุกโต๊ะ" }, ...services.map((s) => ({ id: s.id, label: serviceName(s.id) }))].map((f) => {
-              const count = f.id === "all" ? waiting.length : waiting.filter((t) => t.serviceId === f.id).length;
-              const active = tableFilter === f.id;
-              return (
-                <button
-                  key={f.id}
-                  onClick={() => setTableFilter(f.id)}
-                  style={{
-                    padding: "6px 14px",
-                    borderRadius: 9999,
-                    border: `1px solid ${active ? "#E11D48" : "#E5E7EB"}`,
-                    background: active ? "#E11D48" : "#fff",
-                    color: active ? "#fff" : "#374151",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                  }}
-                >
-                  {f.label} ({count})
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 16 }}>
-          <thead>
-            <tr style={{ textAlign: "left", color: "#888", fontSize: 13, borderBottom: "2px solid #eee" }}>
-              <th style={{ padding: 8 }}>เลขคิว</th>
-              <th style={{ padding: 8 }}>โต๊ะ / ช่องทาง</th>
-              {!demo && <th style={{ padding: 8 }}>ออเดอร์ล่วงหน้า</th>}
-              <th style={{ padding: 8 }}>รอมาแล้ว</th>
-              {!demo && <th style={{ padding: 8 }} />}
-            </tr>
-          </thead>
-          <tbody>
-            {visibleWaiting.map((t) => (
-              <tr key={t.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
-                <td style={{ ...cell, fontWeight: 700, fontSize: 18 }}>
-                  {t.number} {t.isVip && <span title="VIP">⭐</span>}
-                </td>
-                <td style={{ ...cell, color: "#666" }}>
-                  <div>{serviceName(t.serviceId)}</div>
-                  <div style={{ fontSize: 13 }}>{SOURCE_LABEL[t.source] ?? t.source}</div>
-                </td>
-                {!demo && <td style={cell}><PreorderSummary orders={ordersOf(t.id)} /></td>}
-                <td style={{ ...cell, color: "#666" }}>{t.waitedMin} นาที</td>
-                {!demo && (
-                  <td style={{ ...cell, textAlign: "right" }}>
-                    <ActionButton label="📢 เรียก" color="#E11D48" disabled={busy} onClick={() => changeState(t.id, "called")} />
-                  </td>
-                )}
-              </tr>
-            ))}
-            {visibleWaiting.length === 0 && (
-              <tr><td colSpan={5} style={{ padding: 24, textAlign: "center", color: "#9CA3AF" }}>ไม่มีคิวที่รออยู่ 🎉</td></tr>
+                      )
+                    }
+                  />
+                ))}
+                {calling.length === 0 && <div className="empty">ยังไม่มีคิวที่เรียก</div>}
+              </Panel>
             )}
-          </tbody>
-        </table>
-      </section>
-    </main>
+
+            <Panel
+              title={`⏳ คิวที่รอเรียก (${waiting.length})`}
+              right={
+                <ActionButton label="📢 เรียกคิวถัดไป (เก่าสุด)" color="#06C755" disabled={busy || waiting.length === 0} onClick={callNext} />
+              }
+            >
+              {!demo && services.length > 0 && (
+                <div className="chips">
+                  {[{ id: "all", label: "ทุกโต๊ะ" }, ...services.map((s) => ({ id: s.id, label: serviceName(s.id) }))].map((f) => (
+                    <button key={f.id} className={`chip${tableFilter === f.id ? " on" : ""}`} onClick={() => setTableFilter(f.id)}>
+                      {f.label} ({f.id === "all" ? waiting.length : waiting.filter((t) => t.serviceId === f.id).length})
+                    </button>
+                  ))}
+                </div>
+              )}
+              {visibleWaiting.map((t) => (
+                <TicketRow
+                  key={t.id}
+                  t={t}
+                  table={serviceName(t.serviceId)}
+                  orders={demo ? undefined : <PreorderSummary orders={ordersOf(t.id)} />}
+                  actions={
+                    demo ? undefined : (
+                      <>
+                        <ActionButton label="📢 เรียก" color="#E11D48" disabled={busy} onClick={() => changeState(t.id, "called")} />
+                        <ActionButton label="ยกเลิก" color="#94A3B8" disabled={busy} onClick={() => cancelTicket(t)} />
+                      </>
+                    )
+                  }
+                />
+              ))}
+              {visibleWaiting.length === 0 && <div className="empty">ไม่มีคิวที่รออยู่ 🎉</div>}
+            </Panel>
+          </div>
+
+          {!demo && (
+            <div className="stackcol">
+              <Panel title="🍳 ครัว — ต้องเตรียม (คิวที่ยังไม่เสร็จ)">
+                <ul className="list">
+                  {kitchen.map((r) => (
+                    <li key={`${r.name}|${r.detail}`}>
+                      <span>
+                        {r.name}
+                        {r.detail && <small>{r.detail}</small>}
+                      </span>
+                      <span className="qty">× {r.qty}</span>
+                    </li>
+                  ))}
+                </ul>
+                {kitchen.length === 0 && <div className="empty">ยังไม่มีรายการต้องเตรียม</div>}
+              </Panel>
+
+              <Panel title="🔥 เมนูขายดีวันนี้">
+                <ul className="list">
+                  {topDishes.map((r, i) => (
+                    <li key={r.name}>
+                      <span>
+                        {i + 1}. {r.name}
+                      </span>
+                      <span className="qty">{r.qty} จาน</span>
+                    </li>
+                  ))}
+                </ul>
+                {topDishes.length === 0 && <div className="empty">ยังไม่มีออเดอร์วันนี้</div>}
+              </Panel>
+
+              <Panel title="📜 ความเคลื่อนไหวล่าสุด (ทุกเครื่อง)">
+                <ul className="list">
+                  {activity.map((a, i) => (
+                    <li key={`${a.at.getTime()}-${i}`}>
+                      <span style={{ color: a.color, fontWeight: 600 }}>{a.text}</span>
+                      <span style={{ color: "#94A3B8", fontSize: 12 }}>{timeText(a.at)}</span>
+                    </li>
+                  ))}
+                </ul>
+                {activity.length === 0 && <div className="empty">รอเหตุการณ์ใหม่ — แสดงทันทีเมื่อมีการเปลี่ยนแปลงจากทุกเครื่อง</div>}
+              </Panel>
+            </div>
+          )}
+        </div>
+      </main>
+    </>
   );
 }

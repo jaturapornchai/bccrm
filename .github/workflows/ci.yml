@@ -32,26 +32,6 @@ jobs:
       - name: Build ทุกแอป
         run: pnpm build
 
-  flutter:
-    name: Analyze / Test (Flutter)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - working-directory: apps/mobile
-        run: flutter pub get
-
-      - working-directory: apps/mobile
-        run: flutter analyze
-
-      - working-directory: apps/mobile
-        run: flutter test
-
   docker:
     name: Docker Compose ขึ้นระบบได้
     runs-on: ubuntu-latest

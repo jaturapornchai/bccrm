@@ -123,7 +123,7 @@ soft gray and green #06C755 palette, simple shapes, no text
 
 | ภาพ | ใช้ที่ |
 |---|---|
-| 1 | ไอคอนแอป Flutter, favicon, โลโก้ repo |
+| 1 | favicon, โลโก้ repo |
 | 2 | หน้าแรก README, เว็บโปรเจกต์ |
 | 3 | เอกสารสถาปัตยกรรม, README ส่วน Architecture |
 | 4-6 | สไลด์นำเสนอ / โพสต์แนะนำโปรเจกต์ |

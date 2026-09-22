@@ -1,6 +1,7 @@
 import { Logger } from "@nestjs/common";
 import {
   OnGatewayConnection,
+  OnGatewayDisconnect,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
@@ -12,7 +13,7 @@ import type { Server, Socket } from "socket.io";
  * client join ห้องตาม branchId: `branch:<branchId>`
  */
 @WebSocketGateway({ cors: { origin: true } })
-export class QueueGateway implements OnGatewayConnection {
+export class QueueGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(QueueGateway.name);
 
   @WebSocketServer()
@@ -26,6 +27,30 @@ export class QueueGateway implements OnGatewayConnection {
   joinBranch(client: Socket, branchId: string) {
     void client.join(`branch:${branchId}`);
     return { joined: branchId };
+  }
+
+  /** หน้าจอพนักงาน (admin หลายเครื่อง) — นับเครื่องที่ออนไลน์ให้ทุกเครื่องเห็น */
+  @SubscribeMessage("join-staff")
+  async joinStaff(client: Socket, branchId: string) {
+    client.data.staffBranch = branchId;
+    await client.join([`branch:${branchId}`, `staff:${branchId}`]);
+    await this.emitStaffCount(branchId);
+    return { joined: branchId };
+  }
+
+  async handleDisconnect(client: Socket) {
+    if (client.data.staffBranch) await this.emitStaffCount(client.data.staffBranch as string);
+  }
+
+  private async emitStaffCount(branchId: string) {
+    const room = `staff:${branchId}`;
+    const count = (await this.server.in(room).fetchSockets()).length;
+    this.server.to(room).emit("staff:count", count);
+  }
+
+  /** ออเดอร์ล่วงหน้าใหม่ → เฉพาะหน้าจอพนักงาน (LIFF ไม่ต้องโหลดซ้ำ) */
+  emitOrder(branchId: string, payload: { orderNumber: string; totalAmount: number; ticketId?: string }) {
+    this.server.to(`staff:${branchId}`).emit("order:new", payload);
   }
 
   /** เรียกจาก service อื่นเมื่อคิวเปลี่ยนสถานะ */

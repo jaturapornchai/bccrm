@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   forwardRef,
   Inject,
   Injectable,
@@ -104,29 +105,14 @@ export class QueuesService {
 
   /** เรียกคิวถัดไปเข้าเคาน์เตอร์ */
   async callNext(branchId: string, counterId: string, staffId: string): Promise<TicketRecord> {
-    const [next] = await this.waitingList(branchId);
-    if (!next) throw new NotFoundException("ไม่มีคิวที่รออยู่");
-
-    const called = await this.changeState(next.id, TicketState.Called, {
-      counterId,
-      servedById: staffId,
-      calledAt: new Date(),
-    });
-    // แจ้งจอ TV/ลำโพงเรียกคิวแยกจากอัปเดตทั่วไป
-    this.gateway.emitCall(branchId, { number: called.number, counterName: counterId });
-
-    // แจ้งเตือนลูกค้าผ่าน LINE ถ้ามี customerId/lineUserId
-    if (called.customerId && called.customerId.startsWith("U")) {
-      const liffUrl = process.env.LIFF_URL ?? "http://localhost:3002";
-      this.lineNotify.sendCalledAlert(
-        called.customerId,
-        called.number,
-        counterId,
-        `${liffUrl}?ticketId=${called.id}`,
-      ).catch((err) => console.error("Send called alert error:", err));
+    for (const next of await this.waitingList(branchId)) {
+      try {
+        return await this.changeState(next.id, TicketState.Called, { counterId, servedById: staffId, calledAt: new Date() });
+      } catch (err) {
+        if (!(err instanceof ConflictException)) throw err; // อีกเครื่องเพิ่งเรียกคิวนี้ไป → เรียกคิวถัดไปแทน
+      }
     }
-
-    return called;
+    throw new NotFoundException("ไม่มีคิวที่รออยู่");
   }
 
   /** เปลี่ยนสถานะคิวตาม state machine ของ queue-engine (รับได้ทั้ง "serving" และ "Serving") */
@@ -160,10 +146,24 @@ export class QueuesService {
     const updated = await this.store.updateTicket(ticketId, {
       state: target.toUpperCase(),
       ...extra,
-    } as Partial<TicketRecord>);
+    } as Partial<TicketRecord>, ticket.state);
+    if (!updated) throw new ConflictException("คิวนี้ถูกพนักงานเครื่องอื่นเปลี่ยนสถานะไปแล้ว");
 
     this.gateway.emitQueueUpdate(updated.branchId, { type: "state_changed", ticket: updated });
+    // ทุกทางที่เรียกคิว (call-next / ปุ่มเรียกรายคิว / MCP) แจ้งเตือนที่เดียวตรงนี้
+    if (target === "called") this.notifyCalled(updated);
     return updated;
+  }
+
+  /** เรียกคิว → เสียงเรียกบนบัตรคิว LIFF (socket) + LINE push หาลูกค้า (เปิดด้วย ENABLE_LINE_PUSH_ON_CALLED) */
+  private notifyCalled(ticket: TicketRecord) {
+    const counterName = ticket.counterId ?? "เคาน์เตอร์ต้อนรับ";
+    this.gateway.emitCall(ticket.branchId, { number: ticket.number, counterName });
+    if (!ticket.customerId?.startsWith("U")) return; // walk-in ไม่มี LINE userId
+    const liffUrl = process.env.LIFF_URL ?? "http://localhost:3002";
+    this.lineNotify
+      .sendCalledAlert(ticket.customerId, ticket.number, counterName, `${liffUrl}?ticketId=${ticket.id}`)
+      .catch((err) => console.error("Send called alert error:", err));
   }
 
   /** รายการบริการของสาขา */

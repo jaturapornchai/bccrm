@@ -67,11 +67,10 @@ export class PrismaQueueStore implements QueueStore {
     }) as Promise<TicketRecord | null>;
   }
 
-  updateTicket(id: string, data: Partial<TicketRecord>): Promise<TicketRecord> {
-    return this.prisma.queueTicket.update({
-      where: { id },
-      data: data as never,
-    }) as Promise<TicketRecord>;
+  async updateTicket(id: string, data: Partial<TicketRecord>, expectedState?: string): Promise<TicketRecord | null> {
+    if (!expectedState) return this.prisma.queueTicket.update({ where: { id }, data: data as never }) as Promise<TicketRecord>;
+    const { count } = await this.prisma.queueTicket.updateMany({ where: { id, state: expectedState as never }, data: data as never });
+    return count ? (this.prisma.queueTicket.findUnique({ where: { id } }) as Promise<TicketRecord | null>) : null;
   }
 
   async statsByState(branchId: string, queueDate: Date): Promise<Record<string, number>> {

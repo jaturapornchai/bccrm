@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import type { Collection } from "mongodb";
 import { MongoService } from "../mongo/mongo.service";
+import { QueueGateway } from "../realtime/queue.gateway";
 import { CreateOrderDto, RecommendNextDto } from "./dto/menu.dto";
 import { choice, TypeSafeClient } from "@typesafe-ai/sdk";
 
@@ -486,7 +487,10 @@ export class MenuService {
   private jevClient: TypeSafeClient | null = null;
   private setupOnce: Promise<void> | null = null;
 
-  constructor(private readonly mongo: MongoService) {
+  constructor(
+    private readonly mongo: MongoService,
+    private readonly gateway: QueueGateway,
+  ) {
     const apiKey = process.env.TYPESAFE_API_KEY;
     if (apiKey) {
       try {
@@ -656,6 +660,7 @@ export class MenuService {
     };
 
     await (await this.ordersCollection()).insertOne(order);
+    this.gateway.emitOrder(order.branchId, { orderNumber, totalAmount, ticketId: order.ticketId });
     this.logger.log(`Order ${orderNumber} created for table ${order.tableNumber}: ${totalAmount} THB`);
     return order;
   }

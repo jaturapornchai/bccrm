@@ -6,13 +6,12 @@
   <img alt="DeepSeek AI" src="https://img.shields.io/badge/AI-DeepSeek-0EA5E9?logo=openai&logoColor=white">
   <img alt="MongoDB" src="https://img.shields.io/badge/mongodb-7%2F8-47A248?logo=mongodb&logoColor=white">
   <img alt="LINE OA" src="https://img.shields.io/badge/LINE-OA%20%2B%20LIFF-06C755?logo=line&logoColor=white">
-  <img alt="Flutter" src="https://img.shields.io/badge/flutter-3.x-02569B?logo=flutter&logoColor=white">
   <img alt="MCP" src="https://img.shields.io/badge/MCP-Server-8A2BE2">
 </p>
 
 ระบบบริหารคิว ลูกค้าสัมพันธ์ (CRM) และ **ผู้ช่วย AI อัจฉริยะ ("น้องบีซี") ขับเคลื่อนด้วย DeepSeek** แบบโอเพนซอร์ส สำหรับธุรกิจบริการไทย — คลินิก, ร้านเสริมสวย, ร้านอาหาร, ศูนย์บริการลูกค้า และจุดรับบริการต่างๆ
 
-ลูกค้า **จองคิว เช็กบัตรคิวสด และคุยกับ AI ผ่าน LINE OA & LIFF** ได้ทันทีโดยไม่ต้องโหลดแอปเพิ่ม ส่วนร้านค้ามี **Web Admin + แอปมือถือ/แท็บเล็ต (Flutter) + Kiosk หน้าร้าน + จอแสดงคิว TV + MCP Server สำหรับ AI ภายนอก** ครบจบในที่เดียว
+ลูกค้า **จองคิว เช็กบัตรคิวสด และคุยกับ AI ผ่าน LINE OA & LIFF** ได้ทันทีโดยไม่ต้องโหลดแอปเพิ่ม ส่วนร้านค้ามี **Web Admin (หน้าจอพนักงาน ใช้ได้ทั้งคอมและแท็บเล็ต) + MCP Server สำหรับ AI ภายนอก** ครบจบในที่เดียว
 
 > **License: MIT — ใช้ฟรี ดัดแปลงได้ ทำการค้าได้ ไม่มีเงื่อนไขซ่อน**
 
@@ -35,8 +34,7 @@
 4. **Backend-First & MCP Server (Model Context Protocol)**:
    - ประมวลผลทุกตรรกะที่ Backend เป็นหลัก รองรับ API และเปิด **`POST /mcp`** ให้ AI Agent ภายนอกเข้าสั่งงานระบบคิวได้โดยตรง
 5. **Multi-Platform Support**:
-   - **Web Admin (Next.js 15)**: สำหรับผู้จัดการร้านดูภาพรวมและรายงาน
-   - **Mobile App & Kiosk (Flutter)**: สำหรับพนักงานกดเรียกคิว และตั้งเป็น Kiosk ให้ลูกค้ากดบัตรคิวหน้าร้าน
+   - **Web Admin (Next.js 15)**: หน้าจอพนักงาน — login, เห็นออเดอร์ล่วงหน้าของแต่ละคิว, เรียกคิวตามขนาดโต๊ะ, นั่งแล้ว/เสร็จ/ไม่มา
 
 ---
 
@@ -47,11 +45,11 @@
                                                           │
 ลูกค้า (LINE LIFF Web App) ───────────────────────────────┤
                                                           ▼
-Kiosk หน้าร้าน / จอแสดงผล TV ────────────────────► Backend API (NestJS)
+                                                   Backend API (NestJS)
                                                           │
 Web Admin (Next.js 15) ───────────────────────────────────┼──► MongoDB 7.0 (ข้อมูลหลัก & คิว)
                                                           ├──► Redis 7 (Cache / Pub-Sub)
-พนักงาน (Flutter App) ───────────────────────────────────┼──► DeepSeek API (LLM Engine)
+                                                          ├──► DeepSeek API (LLM Engine)
                                                           │
 AI Agent ภายนอก ──[MCP Protocol]──► POST /mcp ────────────┘
 ```
@@ -64,8 +62,7 @@ AI Agent ภายนอก ──[MCP Protocol]──► POST /mcp ────
 |---|---|
 | `apps/api` | Backend API (NestJS) — Queue Engine, LINE Webhook, DeepSeek AI, Customer Store, Auth, **MCP Server** |
 | `apps/liff` | LIFF Web App (Vite + React + Tailwind) — จองคิว, บัตรคิวสด, แชท AI, ข้อมูล PDPA |
-| `apps/admin` | Web Admin (Next.js 15) — ตั้งค่าร้าน, จัดการคิว, รายงานสถิติ |
-| `apps/mobile` | แอปมือถือ + Kiosk (Flutter) — คอนโซลเรียกคิว realtime, ตู้ออกบัตรคิว, จอแสดงผล |
+| `apps/admin` | Web Admin (Next.js 15) — หน้าจอพนักงาน: login, ออเดอร์ล่วงหน้า, เรียกคิว, สถิติวันนี้ |
 | `packages/queue-engine` | ตรรกะคิวแกนกลาง (ออกเลข, จัดลำดับ, State Machine) |
 | `packages/line-sdk` | ฟังก์ชันเชื่อมต่อ LINE Platform, Flex Message Templates และ Webhook Signature Verifier |
 | `packages/database` | Schema ฐานข้อมูล Prisma (รองรับทั้ง MongoDB และ PostgreSQL) |

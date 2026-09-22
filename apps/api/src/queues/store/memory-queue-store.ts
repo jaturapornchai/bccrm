@@ -103,9 +103,10 @@ export class MemoryQueueStore implements QueueStore {
     return Promise.resolve(found ?? null);
   }
 
-  updateTicket(id: string, data: Partial<TicketRecord>): Promise<TicketRecord> {
+  updateTicket(id: string, data: Partial<TicketRecord>, expectedState?: string): Promise<TicketRecord | null> {
     const ticket = this.tickets.get(id);
     if (!ticket) throw new Error(`ไม่พบตั๋ว ${id}`);
+    if (expectedState && ticket.state !== expectedState) return Promise.resolve(null);
     const updated = { ...ticket, ...data, id: ticket.id };
     this.tickets.set(id, updated);
     return Promise.resolve(updated);

@@ -355,10 +355,10 @@ export default function App() {
     socketRef.current = socket;
 
     socket.on("connect", () => {
-      socket.emit("join_branch", BRANCH_ID);
+      socket.emit("join-branch", BRANCH_ID);
     });
 
-    socket.on("call", (data: { number: string; counterName: string }) => {
+    socket.on("queue:call", (data: { number: string; counterName: string }) => {
       setCallingInfo((prev) => ({
         ...prev,
         currentNumber: data.number,
@@ -373,7 +373,7 @@ export default function App() {
       }
     });
 
-    socket.on("queue_update", () => {
+    socket.on("queue:update", () => {
       loadCallingInfo();
       if (profile?.userId) {
         loadActiveTicket(profile.userId);

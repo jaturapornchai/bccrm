@@ -51,6 +51,10 @@
   "jest": {
     "preset": "ts-jest",
     "testEnvironment": "node",
-    "rootDir": "src"
+    "rootDir": "src",
+    "moduleNameMapper": {
+      "^@bccrm/(.*)$": "<rootDir>/../../../packages/$1/src/index.ts",
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    }
   }
 }

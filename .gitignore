@@ -9,11 +9,6 @@ build/
 out/
 .turbo/
 
-# Flutter / Dart
-.dart_tool/
-.flutter-plugins
-.flutter-plugins-dependencies
-**/android/.gradle/
 **/build/
 **/ios/Pods/
 **/ios/.symlinks/

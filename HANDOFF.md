@@ -75,7 +75,13 @@ scp -r apps/liff/dist root@159.223.43.229:/opt/bccrm/apps/liff/
 # 3. Deploy API backend dist
 scp -r apps/api/dist root@159.223.43.229:/opt/bccrm/apps/api/
 ssh root@159.223.43.229 "docker cp /opt/bccrm/apps/api/dist/. bccrm-prod-api-1:/app/apps/api/dist/ && docker restart bccrm-prod-api-1"
+
+# 4. Deploy Staff Dashboard → https://admin.bcaicloud.com (Caddy เสิร์ฟ out/ + proxy /api, /socket.io ไป 127.0.0.1:3501)
+(cd apps/admin && ADMIN_STATIC=1 NEXT_PUBLIC_API_URL= npx next build)   # ต้องหยุด next dev ก่อน (ใช้ .next ร่วมกัน)
+scp -r apps/admin/out root@159.223.43.229:/opt/bccrm/apps/admin/
 ```
+> แก้ `/opt/bccrm/.env` แล้วต้อง recreate: `docker compose -p bccrm-prod -f docker-compose.server.yml up -d --no-build --no-deps api` แล้ว docker cp dist ซ้ำ (image มี dist เก่า)
+> LINE push บน prod: เปิดเฉพาะตอนเรียกคิว (`ENABLE_LINE_PUSH=true`, `ENABLE_LINE_PUSH_ON_CALLED=true`), booking ยังปิด
 
 ---
 

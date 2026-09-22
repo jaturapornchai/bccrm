@@ -219,14 +219,12 @@ export class MongoQueueStore implements QueueStore {
     });
   }
 
-  async updateTicket(id: string, data: Partial<TicketRecord>): Promise<TicketRecord> {
-    const result = await (await this.tickets()).findOneAndUpdate(
-      { id },
+  async updateTicket(id: string, data: Partial<TicketRecord>, expectedState?: string): Promise<TicketRecord | null> {
+    return (await this.tickets()).findOneAndUpdate(
+      expectedState ? { id, state: expectedState } : { id },
       { $set: data },
       { returnDocument: "after" },
     );
-    if (!result) throw new Error(`ไม่พบตั๋ว ${id}`);
-    return result;
   }
 
   async statsByState(branchId: string, queueDate: Date): Promise<Record<string, number>> {
