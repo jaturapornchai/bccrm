@@ -148,6 +148,7 @@ export class QueuesService {
     }
 
     const stateField: Record<string, string> = {
+      called: "calledAt",
       serving: "servedAt",
       done: "doneAt",
       cancelled: "cancelledAt",

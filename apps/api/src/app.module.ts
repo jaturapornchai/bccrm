@@ -8,6 +8,7 @@ import { LineModule } from "./line/line.module";
 import { AuthModule } from "./auth/auth.module";
 import { RealtimeModule } from "./realtime/realtime.module";
 import { McpModule } from "./mcp/mcp.module";
+import { MenuModule } from "./menu/menu.module";
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { McpModule } from "./mcp/mcp.module";
     QueuesModule,
     LineModule,
     McpModule,
+    MenuModule,
   ],
   controllers: [HealthController],
 })

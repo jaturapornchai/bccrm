@@ -1,6 +1,14 @@
 name: bccrm-prod
 
 services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - bccrm_mongo_data:/data/db
+    networks:
+      - default
+
   api:
     build:
       context: .
@@ -19,8 +27,11 @@ services:
       AI_API_KEY: ${AI_API_KEY}
       AI_MODEL: ${AI_MODEL:-deepseek-chat}
       LIFF_URL: ${LIFF_URL:-https://liff.line.me/2009920675-GqteXbxD}
+      TYPESAFE_API_KEY: ${TYPESAFE_API_KEY}
     ports:
       - "127.0.0.1:3501:3001"
+    depends_on:
+      - mongo
     networks:
       - default
       - bcai-account_data
@@ -29,3 +40,6 @@ networks:
   default:
   bcai-account_data:
     external: true
+
+volumes:
+  bccrm_mongo_data:

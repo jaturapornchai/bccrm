@@ -60,13 +60,87 @@ export class MongoQueueStore implements QueueStore {
       { unique: true, name: "uniq_sequence_per_day" },
     );
 
-    const count = await services.countDocuments({ branchId: "demo" });
-    if (count === 0) {
-      await services.insertMany([
-        { id: "svc-general", branchId: "demo", name: "บริการทั่วไป", ticketPrefix: "A", avgServiceMinutes: 15, isActive: true },
-        { id: "svc-vip", branchId: "demo", name: "บริการพิเศษ (VIP)", ticketPrefix: "V", avgServiceMinutes: 30, isActive: true },
+    const defaultServices = [
+      { id: "svc-table-small", branchId: "demo", name: "โต๊ะ 1-2 ท่าน (โซนคาเฟ่มินิมอล)", ticketPrefix: "A", avgServiceMinutes: 20, isActive: true },
+      { id: "svc-table-medium", branchId: "demo", name: "โต๊ะ 3-4 ท่าน (โซนครอบครัว/กลุ่มเพื่อน)", ticketPrefix: "B", avgServiceMinutes: 30, isActive: true },
+      { id: "svc-table-large", branchId: "demo", name: "โต๊ะใหญ่ 5-8 ท่าน (โซนปาร์ตี้หม้อไฟ & บิงซู)", ticketPrefix: "C", avgServiceMinutes: 40, isActive: true },
+      { id: "svc-takeaway", branchId: "demo", name: "สั่งกลับบ้าน (Takeaway)", ticketPrefix: "T", avgServiceMinutes: 15, isActive: true },
+    ];
+
+    // Remove old service seeds and upsert Seoulmind table queues
+    await services.deleteMany({ branchId: "demo" });
+    for (const svc of defaultServices) {
+      await services.updateOne({ id: svc.id }, { $set: svc }, { upsert: true });
+    }
+    this.logger.log("seed บริการโต๊ะอาหารร้านโซมายด์ เชียงใหม่ สาขา demo ลง MongoDB แล้ว");
+
+    const today = new Date();
+    const bangkok = new Date(today.toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
+    const queueDate = new Date(bangkok.getFullYear(), bangkok.getMonth(), bangkok.getDate());
+
+    const ticketCount = await tickets.countDocuments({ branchId: "demo", queueDate });
+    if (ticketCount === 0) {
+      const makeTicket = (
+        number: string,
+        serviceId: string,
+        sequence: number,
+        state: string,
+        counterId: string | null,
+        minutesAgo: number,
+        isVip = false,
+      ): TicketRecord => {
+        const created = new Date(Date.now() - minutesAgo * 60_000);
+        return {
+          id: randomUUID(),
+          branchId: "demo",
+          serviceId,
+          counterId,
+          customerId: null,
+          servedById: null,
+          number,
+          queueDate,
+          sequence,
+          source: "WALK_IN_KIOSK",
+          state,
+          isVip,
+          createdAt: created,
+          checkedInAt: null,
+          calledAt: state === "CALLED" || state === "SERVING" || state === "DONE" ? created : null,
+          servedAt: state === "SERVING" || state === "DONE" ? created : null,
+          doneAt: state === "DONE" ? new Date(created.getTime() + 45 * 60_000) : null,
+          cancelledAt: null,
+        };
+      };
+
+      await tickets.insertMany([
+        makeTicket("A001", "svc-table-small", 1, "DONE", "โต๊ะ A-01 (โซนคาเฟ่)", 90),
+        makeTicket("A002", "svc-table-small", 2, "DONE", "โต๊ะ A-02 (โซนคาเฟ่)", 50),
+        makeTicket("A003", "svc-table-small", 3, "SERVING", "โต๊ะ A-03 (โซนคาเฟ่)", 15),
+        makeTicket("A004", "svc-table-small", 4, "CALLED", "เคาน์เตอร์ต้อนรับหน้าร้านโซมายด์", 2),
+        makeTicket("A005", "svc-table-small", 5, "WAITING", null, 12),
+        makeTicket("A006", "svc-table-small", 6, "WAITING", null, 6),
+        makeTicket("B001", "svc-table-medium", 1, "SERVING", "โต๊ะ B-01 (โซนใน)", 25),
+        makeTicket("B002", "svc-table-medium", 2, "WAITING", null, 10),
+        makeTicket("C001", "svc-table-large", 1, "WAITING", null, 5),
       ]);
-      this.logger.log("seed บริการตัวอย่างสาขา demo ลง MongoDB แล้ว");
+
+      await sequences.updateOne(
+        { branchId: "demo", serviceId: "svc-table-small", queueDate },
+        { $set: { lastSeq: 6 } },
+        { upsert: true },
+      );
+      await sequences.updateOne(
+        { branchId: "demo", serviceId: "svc-table-medium", queueDate },
+        { $set: { lastSeq: 2 } },
+        { upsert: true },
+      );
+      await sequences.updateOne(
+        { branchId: "demo", serviceId: "svc-table-large", queueDate },
+        { $set: { lastSeq: 1 } },
+        { upsert: true },
+      );
+
+      this.logger.log("seed คิวโต๊ะอาหารร้านโซมายด์วันนี้ลง MongoDB แล้ว (A001-A006, B001-B002, C001)");
     }
   }
 

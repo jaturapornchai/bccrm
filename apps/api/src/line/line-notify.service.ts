@@ -114,7 +114,7 @@ export class LineNotifyService {
           await this.reply(event.replyToken, [
             ticketCardFlex({
               ticketNumber: details.ticket.number,
-              branchName: "สาขาหลัก (Demo)",
+              branchName: "โซมายด์ (Seoulmind) เชียงใหม่",
               serviceName: details.service?.name ?? "บริการทั่วไป",
               aheadCount: details.aheadCount,
               estimatedWaitMinutes: details.estimatedWaitMinutes,

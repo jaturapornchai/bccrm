@@ -1,115 +1,93 @@
-# HANDOFF — BCCRM (ส่งต่อให้ Gemini Flash)
+# HANDOFF — BCCRM (ส่งต่อให้ Claude ทำงานต่อ)
 
-> เอกสารนี้เขียนโดย Kimi (Claude) วันที่ 2026-09-16 เพื่อส่งต่องานให้ AI ตัวถัดไปทำต่อได้โดยไม่ต้องไล่ context เก่า
-> อ่านไฟล์นี้ก่อนเสมอ แล้วค่อยลงมือ — ทุกข้อมูลในนี้ verify แล้วว่าตรงกับของจริง ณ วันที่เขียน
+> อัปเดตล่าสุด: 2026-09-23 โดย Antigravity เพื่อส่งต่อให้ Claude ดูแลและพัฒนาต่อ
+> โปรเจกต์: **BCCRM (ร้านอาหารโซมายด์ Seoulmind เชียงใหม่)**
 
 ---
 
-## 1. โปรเจกต์คืออะไร
+## 1. ข้อมูลสำคัญและสถานะปัจจุบัน
 
-**BCCRM** = ระบบ CRM + คิว สำหรับธุรกิจบริการไทย (คลินิก/ร้านทำผม/ร้านอาหาร) เชื่อม LINE OA — **Open Source MIT ฟรีหมด**
+- **Repository**: `D:\bccrm` (Monorepo: pnpm + Turbo)
+- **Git Branch**: `dev`
+- **Working Tree**: มีการแก้ไฟล์ระบบร้านอาหาร & เมนูใหม่ล่าสุด (ยังไม่ commit/push ตาม Rule 19 จนกว่าลุงจืดจะสั่ง)
+  - Modified: `apps/api/package.json`, `apps/api/src/app.module.ts`, `apps/api/src/line/line-ai.service.ts`, `apps/api/src/queues/store/mongo-queue-store.ts`, `apps/liff/index.html`, `apps/liff/src/App.tsx`, `docker-compose.server.yml`, `pnpm-lock.yaml`
+  - Untracked: `apps/api/src/menu/` (Menu module & JEV Cloud AI recommendation)
 
-- Monorepo: pnpm 9.15 + Turbo ที่ `D:\bccrm`
-- GitHub: `https://github.com/jaturapornchai/bccrm` — branch หลักที่ push แล้วคือ **`dev`** (commit ล่าสุด `c7fede6`) · local `main` มี commit เดียวกันแต่ยังไม่ push
-- Owner: jaturapornchai — สื่อสาร**ภาษาไทย**เสมอ, ชอบให้ "ทำเลย" ไม่ชอบรอ plan นาน
+---
 
-## 2. การตัดสินใจที่ล็อกแล้ว (ห้ามเปิดประเด็นใหม่)
+## 2. การปรับปรุงล่าสุด (ร้านอาหารโซมายด์ Seoulmind เชียงใหม่)
 
-| เรื่อง | ตัดสินใจ |
-|---|---|
-| License | MIT, ฟรีทุกอย่าง ทำการค้าได้ |
-| Mobile app | **Flutter** (owner ยืนยันเอง) — อยู่ `apps/mobile` |
-| Web admin | Next.js 15 — `apps/admin` |
-| Backend | NestJS — `apps/api` พอร์ต 3001 |
-| DB หลัก | **MongoDB** (owner มีใน Docker Desktop อยู่แล้ว) — ไม่ใช้ Postgres เป็นหลัก |
-| Cache | Redis (มีอยู่แล้ว) · ไฟล์/รูป = MinIO (มีอยู่แล้ว) |
-| DB mode | เลือกด้วย env `DB_MODE` = `mongo` (default) / `memory` / `prisma` |
-| MCP | อยู่ใน backend ตัวเดียว `POST /mcp` — Flutter/AI เชื่อมที่เดียวกัน |
-| LIFF | Vite + React — `apps/liff` (ยัง skeleton) |
+### 2.1 แบรนด์และคอนเซ็ปต์ร้าน
+- **ชื่อร้าน**: **โซมายด์ (Seoulmind) เชียงใหม่**
+- **ประเภท**: ร้านอาหารเกาหลี & บิงซู คาเฟ่ยอดนิยม
+- **ที่ตั้ง**: 207 ซอยกาแล 1 หลังวัดอุโมงค์ ต.สุเทพ อ.เมือง จ.เชียงใหม่ (เปิด 11:30 – 21:00 น.)
 
-## 3. สิ่งที่ทำเสร็จและ verify แล้ว (เชื่อได้)
+### 2.2 เมนูจริงของร้าน (Seeded 33 รายการ 6 หมวดหมู่)
+เมนูเก่าที่สับสนถูกลบทิ้งทั้งหมด และเปลี่ยนเป็นเมนูจริงของ Seoulmind:
+1. **ไก่ทอดเกาหลี (6 รายการ)**: ซอสเกาหลีเผ็ดหวาน (129.-), การ์ลิคซอย (129.-), สโนว์ออเนียน (149.-), ชีสลาวา (149.-), ออริจินัล (119.-), ปาร์ตี้เซ็ต 10 ชิ้น (239.-)
+2. **อาหารเกาหลีจานหลัก (9 รายการ)**: ข้าวยำบิบิมบัมหมู (149.-), ข้าวผัดกิมจิไข่ดาวเยิ้ม (129.-), ต๊อกบกกีชีสลาวา (139.-), ราพ็อกกี (159.-), จูกุมิหมึกผัดเผ็ดกระทะร้อน (199.-), หม้อไฟบูเดชิเกะ (329.-), ซุปกิมจิหมูสามชั้น (149.-), ข้าวหมูบูลโกกิ (139.-), จับเช (129.-)
+3. **ของทานเล่น & เครื่องเคียง (7 รายการ)**: คิมมารีทอดกรอบ (79.-), เฟรนช์ฟรายส์ชีส (89.-), เบคอนชีสฟรายส์ (99.-), มันดูทอด (89.-), หัวไชเท้าดองหวาน (29.-), กิมจิโฮมเมด (39.-), ข้าวเกาหลี (25.-)
+4. **บิงซูซิกเนเจอร์อันดับ 1 เชียงใหม่ (5 รายการ)**: สตรอว์เบอร์รี่สดครีมชีสเค้ก (199.-), มะม่วงน้ำดอกไม้เสาวรส (189.-), ไมโลภูเขาไฟ (159.-), มัทฉะโมจิ (179.-), บัวลอยอัญชันมะพร้าวอ่อน (169.-)
+5. **เครื่องดื่ม & สลัชชี่ (4 รายการ)**: สลัชชี่ชาไทยเกล็ดหิมะ (69.-), สลัชชี่ส้มยูซุโซดา (69.-), นมกล้วยเกาหลี (59.-), ชาพีชเลมอน (59.-)
+6. **เซ็ตสุดคุ้ม (2 รายการ)**: ชุดดูโอ้ 2 ท่าน (319.-), ชุดปาร์ตี้บิงซู 3-4 ท่าน (699.-)
 
-- Backend API รันจริงกับ MongoDB จริง — health `{"status":"ok"}`, seed demo data ลง Mongo อัตโนมัติ
-- Login จริงผ่าน REST ได้ JWT · **บัญชี demo: `owner@example.com` / `demo1234`** (hardcode ใน `apps/api/src/auth/auth.service.ts` เมื่อ DB_MODE != prisma)
-- Flutter web ทดสอบ end-to-end ผ่าน browser automation แล้ว: login → เห็นคิวจริงจาก Mongo (A002, A004) → กดเรียกคิว → A002 เปลี่ยนสถานะ สถิติอัปเดต
-- MCP server 5 tools: `bccrm_list_waiting`, `bccrm_create_ticket`, `bccrm_call_next`, `bccrm_change_state`, `bccrm_today_stats`
-- Realtime socket.io (ห้อง `branch:<branchId>`) — gateway อยู่ `apps/api/src/realtime/queue.gateway.ts`, service ยิง event แล้ว
-- Demo data ใน Mongo: สาขา `demo`, บริการ `svc-general` (prefix A), `svc-vip` (prefix V), counters `counter-1`/`counter-2`
-- ภาพหน้าจอจริง: `docs/screenshots/admin-demo-mode.png`, `docs/screenshots/flutter-queue-console.jpg`
-- `flutter analyze` ผ่าน 0 issues · README ฉบับ final ภาษาไทย push ขึ้น dev แล้ว
+### 2.3 ฟีเจอร์ AI Recommendation ด้วย JEV Cloud
+- ใช้งาน `@typesafe-ai/sdk` เชื่อมต่อ `https://api.typesafe.ai` โมเดล `jev-latest` (Key อยู่ใน env: `TYPESAFE_API_KEY`)
+- Endpoint: `POST /api/menu/recommend-next` วิเคราะห์อาหารในตะกร้า แล้วแนะนำเมนูคู่หูที่เข้ากันอย่างเป็นธรรมชาติ (เช่น สั่งของคาว/เผ็ด แนะนำสลัชชี่หรือบิงซูดับเผ็ด)
+- Order ID เปลี่ยนเป็นฟอร์แมต `SM-XXXX`
 
-## 4. สิ่งที่ยังไม่เสร็จ (งานต่อไป เรียงความสำคัญ)
+### 2.4 ระบบคิวหน้าร้าน & โต๊ะ
+- ประเภทคิวใน Mongo Queue Store ปรับเป็น 4 โซนของร้านโซมายด์:
+  - `A`: โต๊ะ 1-2 ท่าน (โซนคาเฟ่มินิมอล)
+  - `B`: โต๊ะ 3-4 ท่าน (โซนครอบครัว/กลุ่มเพื่อน)
+  - `C`: โต๊ะใหญ่ 5-8 ท่าน (โซนปาร์ตี้หม้อไฟ & บิงซู)
+  - `T`: สั่งกลับบ้าน (Takeaway)
 
-1. **LINE webhook + LIFF จองคิวเชื่อมจริง** — owner อยากได้ลูปครบ: ลูกค้าจองใน LINE → คิวเข้า Mongo → พนักงานเรียกจากแอป (เคยเสนอไว้ owner ยังไม่ตอบ)
-2. `apps/liff` ยัง skeleton — ต้องทำ 3 หน้า: จองคิว / บัตรคิวของฉัน / โปรไฟล์
-3. LINE notification เมื่อใกล้ถึงคิว (push message ผ่าน `packages/line-sdk` ที่มี Flex templates ไทยแล้ว)
-4. RBAC จริง (ตอนนี้ auth เป็น demo hardcode) + role เจ้าของ/ผู้จัดการ/พนักงาน
-5. Web admin หน้าจัดการคิวเชื่อม socket realtime (ตอนนี้ poll/โหมดสาธิต)
-6. Kiosk mode + จอ TV display ใน Flutter (`apps/mobile/lib/features/kiosk`, `display` มีโครงแล้ว — ยังไม่ได้ e2e test)
-7. CRM จริง: โปรไฟล์ลูกค้าจาก LINE userId, ประวัติการใช้บริการ, PDPA consent
+### 2.5 น้องบีซี (AI Chatbot ใน LINE OA)
+- อัปเดตใน `apps/api/src/line/line-ai.service.ts` ให้มี Persona พนักงานต้อนรับร้านโซมายด์ เชียงใหม่ ตอบคำถามเมนู เวลาเปิด-ปิด ที่จอดรถ และแนะนำอาหารพร้อม Flex Message
 
-## 5. สภาพแวดล้อมเครื่องนี้ (สำคัญมาก อ่านก่อนรัน)
+### 2.6 Frontend LINE LIFF (`apps/liff`)
+- ปรับธีม โลโก้ และหัวข้อเป็นร้านโซมายด์ (Seoulmind) เชียงใหม่
+- เมนูบาร์ 6 หมวดหมู่ + ตัวเลือกปรับแต่ง (เลือกระดับความหวาน, ซอสไก่ทอด, ความเผ็ด)
+- แท็บตรวจสอบคิวโต๊ะและโปรไฟล์ลูกค้า
 
-**เครื่อง Windows + Git Bash. ของหลายอย่างไม่ได้อยู่ใน PATH ปกติ:**
+---
 
-- **pnpm 9.15.0** ติดตั้งเองที่ `/d/bccrm/.tools/node_modules/.bin` → ต้อง `export PATH="/d/bccrm/.tools/node_modules/.bin:$PATH"` ทุก shell (`.tools/` ถูก gitignore แล้ว)
-- **Flutter SDK 3.47.4 (Dart 3.13.3)** ติดตั้งเองที่ `/d/bccrm/.tools/flutter` → export PATH ต้องรวม `/c/Windows/System32/WindowsPowerShell/v1.0` ด้วย ไม่งั้น flutter ฟ้องหา PowerShell ไม่เจอ
-- **docker.exe** อยู่ `/c/Program Files/Docker/Docker/resources/bin/docker.exe` (ไม่อยู่ใน PATH)
-- **MongoDB container**: `bchr-mongodb-1` (mongo:8) ที่ `mongodb://127.0.0.1:27018/bccrm` ไม่มี auth — **ต้อง `directConnection: true`** (container โฆษณา hostname "mongodb" ที่ host resolve ไม่ได้) — แก้ไว้แล้วใน `apps/api/src/mongo/mongo.service.ts`
-- Redis `127.0.0.1:6379` · MinIO `127.0.0.1:9100`
-- **ห้ามเขียนไฟล์ `.env`** (tool block) — ใช้ default ในโค้ด หรือ inline env ระวัง MSYS แปลง path: `MONGODB_URL="mongodb://..."` อาจโดนมั่ง → อย่าใช้ inline, default ในโค้ดถูกอยู่แล้ว
-- **Windows node heap พังตอน tsc build api**: ใช้ `NODE_OPTIONS="--max-old-space-size=8192"`
-- Build order: `pnpm --filter @bccrm/queue-engine build && pnpm --filter @bccrm/line-sdk build` ก่อน `pnpm --filter @bccrm/api build` (ครั้งแรกเท่านั้น)
-- **เครื่องนี้มีโปรเจกต์อื่นรันเยอะมาก** (พอร์ต 3000=MongoModel, 3100, ฯลฯ) — **ห้าม taskkill มั่วตามพอร์ต** หา PID ของตัวเองเท่านั้น (เคยพลาด kill โปรเจกต์อื่นมาแล้ว 1 ครั้ง)
+## 3. Production & Server Details
 
-## 6. คำสั่งที่ใช้บ่อย
+- **Host IP**: `159.223.43.229` (SSH key root)
+- **Path บน Server**: `/opt/bccrm/`
+- **Reverse Proxy**: Caddy (จัดการ HTTPS อัตโนมัติ)
+  - Route `/api/*`, `/webhooks/*`, `/health`, `/socket.io/*` -> `127.0.0.1:3501` (`bccrm-prod-api-1`)
+  - Route อื่นๆ -> Static files ที่ `/opt/bccrm/apps/liff/dist/`
+- **LIFF URL**: `https://liff.line.me/2009920675-GqteXbxD`
+- **Domain**: `https://lineoahook.bcaicloud.com`
 
+### วิธี Build และ Hot-Deploy รวดเร็ว (~5 วินาที)
 ```bash
-export PATH="/d/bccrm/.tools/node_modules/.bin:$PATH"
-cd /d/bccrm
+# 1. Build local
+pnpm --filter @bccrm/api build
+pnpm --filter @bccrm/liff build
 
-# backend (Mongo จริง, default DB_MODE=mongo)
-pnpm --filter @bccrm/api dev                      # พอร์ต 3001, MCP ที่ POST /mcp
+# 2. Deploy LIFF static files
+scp -r apps/liff/dist root@159.223.43.229:/opt/bccrm/apps/liff/
 
-# backend demo ไม่มี DB
-DB_MODE=memory pnpm --filter @bccrm/api dev
-
-# web admin
-pnpm --filter @bccrm/admin dev                    # Next.js
-
-# flutter (เพิ่ม PATH flutter + powershell ก่อน)
-export PATH="/d/bccrm/.tools/flutter/bin:/c/Windows/System32/WindowsPowerShell/v1.0:$PATH"
-cd apps/mobile && flutter pub get
-flutter run -d web-server --web-port 4400         # ลองบน browser
-flutter run --dart-define=BCCRM_API_URL=http://<IP>:3001   # มือถือจริง/emulator
+# 3. Deploy API backend dist
+scp -r apps/api/dist root@159.223.43.229:/opt/bccrm/apps/api/
+ssh root@159.223.43.229 "docker cp /opt/bccrm/apps/api/dist/. bccrm-prod-api-1:/app/apps/api/dist/ && docker restart bccrm-prod-api-1"
 ```
-
-## 7. โครงโค้ดสำคัญ
-
-```
-apps/api/src/
-  mongo/mongo.service.ts          # MongoClient + directConnection
-  queues/store/                   # queue-store (interface), mongo-queue-store,
-                                  # memory-queue-store, prisma-queue-store
-  queues/queues.service.ts        # ตรรกะคิว + ยิง socket events
-  mcp/                            # mcp.controller (POST /mcp), mcp-server.factory
-  auth/                           # demo login + JWT
-  realtime/queue.gateway.ts       # socket.io
-apps/mobile/lib/
-  core/                           # config, api_client, socket_service
-  features/auth/                  # auth_state, login_page
-  features/staff/                 # queue_controller, queue_console_page (e2e ผ่านแล้ว)
-  features/kiosk/, display/       # โครงพร้อม ยังไม่ e2e
-packages/queue-engine/            # ตรรกะออกเลขคิว/state machine (shared)
-packages/line-sdk/                # Flex message templates ภาษาไทย
-```
-
-## 8. วิธีคุยกับ owner
-
-- ภาษาไทย 100%, กระชับ, ทำเลยไม่ต้องถามยิบย่อย
-- owner มี viewer เปิดไฟล์ฝั่งขวาตลอด — ถ้าสร้าง/แก้ไฟล์ที่เขาดูอยู่จะเห็นทันที
-- ชอบให้สรุปเป็นตาราง + มีภาพหน้าจอประกอบ
-- ตอนส่งมอบ web app ต้องใส่ preview link รูปแบบ `[ชื่อ](http://localhost:7100/)` คั่นด้วย path root แบบ inline code
 
 ---
-*ถ้าอ่านถึงตรงนี้แล้ว ให้เริ่มจากเช็ก `git status` + `curl http://localhost:3001/health` ว่า backend ยังอยู่ไหม แล้วทำงานข้อ 4.1 (LINE webhook + LIFF) ต่อได้เลย*
+
+## 4. สิ่งที่สามารถทำต่อได้ทันที (Next Steps สำหรับ Claude)
+
+1. **Commit & Push ขึ้น Git**:
+   - เมื่อลุงจืดสั่ง: ตรวจสอบความสะอาด ลบ dead code หรือ debug log (Rule 16) แล้ว commit ขึ้น `dev`
+2. **LINE OA Rich Menu**:
+   - ลุงจืดต้องการปรับแต่ง Rich Menu ให้เข้ากับร้านโซมายด์ แนะนำ 4 หรือ 6 ช่อง:
+     1. สั่งอาหาร & ดูเมนู (เปิด LIFF: `https://liff.line.me/2009920675-GqteXbxD`)
+     2. จองคิวโต๊ะหน้าร้าน
+     3. คุยกับน้องบีซี (AI ผู้ช่วยร้าน)
+     4. แผนที่ร้านหลังวัดอุโมงค์ & เวลาทำการ
+3. **การสั่งอาหารและส่งเข้าครัว/ออกใบเสร็จ**:
+   - ขยายระบบ Order ให้แจ้งเตือนเข้าห้องครัวหรือ LINE Notification ของร้าน
