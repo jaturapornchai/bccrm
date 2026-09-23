@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { io } from "socket.io-client";
 import {
   DEMO_TICKETS,
@@ -19,16 +19,13 @@ const STAFF_ID = "staff-demo";
 const REFRESH_MS = 10_000;
 const LATE_MIN = 30;
 const ACTIVITY_MAX = 30;
-const TOKEN_KEY = "bccrm_token";
-const USER_KEY = "bccrm_user";
 
-/** fetch ไป API พร้อมแนบ token พนักงาน */
+// ponytail: เปิดเดโม่ไม่ต้อง login (ลุงจืด 2026-09-23) — ใส่ auth เมื่อเปิดใช้กับร้านจริง
 const api = (path: string, init: RequestInit = {}) =>
   fetch(`${API}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY) ?? ""}`,
       ...init.headers,
     },
   });
@@ -224,67 +221,11 @@ function TicketRow({ t, table, orders, actions }: { t: Row; table: string; order
   );
 }
 
-/** หน้า login พนักงาน */
-function LoginForm({ onLogin, onDemo }: { onLogin: (name: string) => void; onDemo: () => void }) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const input = { width: "100%", padding: "12px 14px", fontSize: 16, borderRadius: 10, border: "1px solid #D1D5DB", marginTop: 6 } as const;
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`${API}/api/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(res.status < 500 ? "อีเมลหรือรหัสผ่านไม่ถูกต้อง" : "เซิร์ฟเวอร์ขัดข้อง ลองใหม่อีกครั้ง");
-      localStorage.setItem(TOKEN_KEY, body.accessToken);
-      localStorage.setItem(USER_KEY, JSON.stringify(body.user));
-      onLogin(body.user?.displayName ?? email);
-    } catch (err) {
-      setError(err instanceof TypeError ? "เชื่อมต่อเซิร์ฟเวอร์ไม่ได้" : (err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <main className="card" style={{ maxWidth: 400, margin: "80px auto", padding: 28 }}>
-      <h1 style={{ margin: 0 }}>🍗 โซมายด์</h1>
-      <p style={{ color: "#666", marginTop: 4 }}>เข้าสู่ระบบหน้าจอพนักงาน</p>
-      <form onSubmit={submit} style={{ marginTop: 24, display: "grid", gap: 14 }}>
-        <label>
-          อีเมล
-          <input type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} style={input} />
-        </label>
-        <label>
-          รหัสผ่าน
-          <input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} style={input} />
-        </label>
-        {error && <div style={{ color: "#DC2626", fontSize: 14 }}>{error}</div>}
-        <button type="submit" disabled={loading} style={{ padding: 14, borderRadius: 10, border: "none", background: "#E11D48", color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer", opacity: loading ? 0.6 : 1 }}>
-          {loading ? "กำลังเข้าสู่ระบบ…" : "เข้าสู่ระบบ"}
-        </button>
-      </form>
-      <button onClick={onDemo} style={{ marginTop: 16, background: "none", border: "none", color: "#6B7280", textDecoration: "underline", cursor: "pointer" }}>
-        ทดลองโหมดสาธิต (ไม่ต้องเชื่อม backend)
-      </button>
-    </main>
-  );
-}
-
 /**
  * Dashboard พนักงานร้าน — เปิดพร้อมกันได้หลายเครื่อง ทุกเครื่องเห็นสถานะเดียวกันแบบ realtime
  * (socket.io + poll สำรอง) ถ้าเชื่อม API ไม่ได้ตกเข้าโหมดสาธิตอัตโนมัติ
  */
 export default function DashboardPage() {
-  const [staffName, setStaffName] = useState<string | null | undefined>(undefined);
   const [demo, setDemo] = useState<boolean | null>(null);
   const [stats, setStats] = useState<Record<string, number>>({});
   const [waiting, setWaiting] = useState<Row[]>([]);
@@ -350,16 +291,11 @@ export default function DashboardPage() {
   }, [demoTickets]);
 
   useEffect(() => {
-    const saved = localStorage.getItem(USER_KEY);
-    setStaffName(saved ? (JSON.parse(saved).displayName ?? "พนักงาน") : null);
+    loadFromApi().catch(loadDemo);
     const clock = setInterval(() => setNow(new Date()), 30_000);
     return () => clearInterval(clock);
-  }, []);
-
-  useEffect(() => {
-    if (staffName) loadFromApi().catch(loadDemo);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [staffName]);
+  }, []);
 
   // ทุกเครื่องเห็นการเปลี่ยนแปลงของกันและกันผ่าน socket (ห้อง staff:<branch>) + poll สำรองเผื่อ socket หลุด
   useEffect(() => {
@@ -429,17 +365,6 @@ export default function DashboardPage() {
     if (confirm(`ยกเลิกคิว ${t.number}?`)) void run(() => api(`/api/queues/tickets/${t.id}/cancel`, { method: "POST" }));
   };
 
-  const logout = () => {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
-    setDemo(null);
-    setStaffName(null);
-  };
-
-  if (staffName === undefined) return null;
-  if (staffName === null && !demo) {
-    return <LoginForm onLogin={setStaffName} onDemo={loadDemo} />;
-  }
   if (demo === null) {
     return <main style={{ padding: 24 }}>กำลังโหลด…</main>;
   }
@@ -471,10 +396,7 @@ export default function DashboardPage() {
           </>
         )}
         <span className="spacer">
-          🕒 {timeText(now)} · {demo ? "โหมดสาธิต" : `👤 ${staffName}`}{" "}
-          <button className="ghost" onClick={logout}>
-            {demo ? "กลับหน้าเข้าสู่ระบบ" : "ออกจากระบบ"}
-          </button>
+          🕒 {timeText(now)} · 🧪 เดโม่ระบบ — กดได้ทุกปุ่ม
         </span>
       </header>
 
