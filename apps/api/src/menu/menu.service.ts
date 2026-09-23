@@ -1,9 +1,9 @@
-import { BadRequestException, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import type { Collection } from "mongodb";
 import { MongoService } from "../mongo/mongo.service";
 import { QueueGateway } from "../realtime/queue.gateway";
-import { CreateOrderDto, RecommendNextDto } from "./dto/menu.dto";
+import { CreateOrderDto, OrderStatus, RecommendNextDto } from "./dto/menu.dto";
 import { choice, TypeSafeClient } from "@typesafe-ai/sdk";
 
 export interface MenuItem {
@@ -43,9 +43,10 @@ export interface OrderRecord {
     subtotal: number;
   }>;
   totalAmount: number;
-  status: "PENDING" | "COOKING" | "SERVED" | "CANCELLED";
+  status: "PENDING" | "COOKING" | "READY" | "SERVED" | "CANCELLED";
   note?: string;
   createdAt: Date;
+  updatedAt?: Date;
 }
 
 const DEFAULT_MENU: MenuItem[] = [
@@ -676,17 +677,63 @@ export class MenuService {
     return doc!.seq;
   }
 
-  /** ออเดอร์ล่วงหน้าวันนี้ทั้งร้าน — หน้าจอพนักงานใช้จับคู่กับคิว */
-  async getTodayOrders(branchId: string): Promise<OrderRecord[]> {
+  /** ออเดอร์ล่วงหน้าวันนี้ทั้งร้าน — หน้าจอพนักงานและ KDS ใช้ติดตามสถานะ */
+  async getTodayOrders(branchId: string, status?: string): Promise<OrderRecord[]> {
     await this.ensureSetup();
     // ponytail: เที่ยงคืนเวลาไทย (UTC+7 ไม่มี DST)
     const DAY = 86_400_000;
     const startOfBangkokDay = new Date(Date.now() - ((Date.now() + 7 * 3_600_000) % DAY));
+    const filter: Record<string, unknown> = {
+      branchId,
+      createdAt: { $gte: startOfBangkokDay },
+    };
+
+    if (status === "ACTIVE") {
+      filter.status = { $in: ["PENDING", "COOKING", "READY"] };
+    } else if (status === "ALL") {
+      // ไม่กรองสถานะ เอาทั้งหมดรวม CANCELLED
+    } else if (status) {
+      filter.status = status;
+    } else {
+      filter.status = { $ne: "CANCELLED" };
+    }
+
     return (await this.ordersCollection())
-      .find({ branchId, createdAt: { $gte: startOfBangkokDay }, status: { $ne: "CANCELLED" } })
+      .find(filter)
       .sort({ createdAt: 1 })
       .limit(500)
       .toArray();
+  }
+
+  /** อัปเดตสถานะออเดอร์จากหน้าจอ KDS/Admin (เช่น COOKING -> READY -> SERVED) */
+  async updateOrderStatus(orderId: string, status: OrderStatus): Promise<OrderRecord> {
+    await this.ensureSetup();
+    const col = await this.ordersCollection();
+    const order = await col.findOne({ id: orderId });
+    if (!order) throw new NotFoundException(`ไม่พบออเดอร์ ${orderId}`);
+
+    const validStatuses: OrderStatus[] = ["PENDING", "COOKING", "READY", "SERVED", "CANCELLED"];
+    if (!validStatuses.includes(status)) {
+      throw new BadRequestException(`สถานะไม่ถูกต้อง: ${status}`);
+    }
+
+    const updatedAt = new Date();
+    await col.updateOne({ id: orderId }, { $set: { status, updatedAt } });
+
+    const updatedOrder: OrderRecord = {
+      ...order,
+      status,
+      updatedAt,
+    };
+
+    this.gateway.emitOrderUpdate(order.branchId, {
+      id: order.id,
+      orderNumber: order.orderNumber,
+      status,
+    });
+
+    this.logger.log(`Order ${order.orderNumber} status changed to ${status}`);
+    return updatedOrder;
   }
 
   async getMyOrders(lineUserId?: string, ticketId?: string): Promise<OrderRecord[]> {

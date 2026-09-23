@@ -53,6 +53,11 @@ export class QueueGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(`staff:${branchId}`).emit("order:new", payload);
   }
 
+  /** แจ้งเตือนเมื่อสถานะออเดอร์ในครัวเปลี่ยน (เช่น COOKING -> READY -> SERVED) */
+  emitOrderUpdate(branchId: string, payload: { id: string; orderNumber: string; status: string }) {
+    this.server.to(`staff:${branchId}`).emit("order:update", payload);
+  }
+
   /** เรียกจาก service อื่นเมื่อคิวเปลี่ยนสถานะ */
   emitQueueUpdate(branchId: string, payload: unknown) {
     this.server.to(`branch:${branchId}`).emit("queue:update", payload);

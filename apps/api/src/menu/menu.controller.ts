@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Query } from "@nestjs/common";
 import { MenuService } from "./menu.service";
-import { CreateOrderDto, RecommendNextDto } from "./dto/menu.dto";
+import { CreateOrderDto, RecommendNextDto, UpdateOrderStatusDto } from "./dto/menu.dto";
 
 @Controller("menu")
 export class MenuController {
@@ -33,10 +33,22 @@ export class MenuController {
     return this.menu.createOrder(dto);
   }
 
-  /** ออเดอร์ล่วงหน้าวันนี้ของสาขา (หน้าจอพนักงาน) */
+  /** อัปเดตสถานะออเดอร์สำหรับจอครัว KDS (เช่น PENDING, COOKING, READY, SERVED, CANCELLED) */
+  @Patch("orders/:id/status")
+  updateStatus(
+    @Param("id") id: string,
+    @Body() dto: UpdateOrderStatusDto,
+  ) {
+    return this.menu.updateOrderStatus(id, dto.status);
+  }
+
+  /** ออเดอร์ล่วงหน้าวันนี้ของสาขา (หน้าจอพนักงาน & จอครัว KDS) */
   @Get("orders/today")
-  todayOrders(@Query("branchId") branchId?: string) {
-    return this.menu.getTodayOrders(branchId || "demo");
+  todayOrders(
+    @Query("branchId") branchId?: string,
+    @Query("status") status?: string,
+  ) {
+    return this.menu.getTodayOrders(branchId || "demo", status);
   }
 
   /** ดูประวัติออเดอร์ของลูกค้า */

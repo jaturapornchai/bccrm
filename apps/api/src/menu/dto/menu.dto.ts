@@ -71,6 +71,13 @@ export class CreateOrderDto {
   note?: string;
 }
 
+export type OrderStatus = "PENDING" | "COOKING" | "READY" | "SERVED" | "CANCELLED";
+
+export class UpdateOrderStatusDto {
+  @IsString()
+  status!: OrderStatus;
+}
+
 export class RecommendNextDto {
   @IsArray()
   @ArrayMaxSize(50)
