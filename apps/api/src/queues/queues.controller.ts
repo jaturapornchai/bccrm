@@ -52,6 +52,12 @@ export class QueuesController {
     return this.queues.getActiveCustomerTicket(branchId || "demo", customerId);
   }
 
+  /** เรียกซ้ำ (ลูกค้ายังไม่มา) */
+  @Post("tickets/:id/recall")
+  recall(@Param("id") id: string) {
+    return this.queues.recall(id);
+  }
+
   /** ยกเลิกตั๋วคิว */
   @Post("tickets/:id/cancel")
   cancelTicket(@Param("id") id: string) {

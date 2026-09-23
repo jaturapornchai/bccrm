@@ -18,6 +18,7 @@ const COUNTER_ID = "เคาน์เตอร์ต้อนรับ"; // แ
 const STAFF_ID = "staff-demo";
 const REFRESH_MS = 10_000;
 const LATE_MIN = 30;
+const RECALL_HINT_MIN = 5; // เรียกแล้วเกิน 5 นาทียังไม่มา → เน้นสีให้พนักงานเรียกซ้ำ
 const ACTIVITY_MAX = 30;
 
 // ponytail: เปิดเดโม่ไม่ต้อง login (ลุงจืด 2026-09-23) — ใส่ auth เมื่อเปิดใช้กับร้านจริง
@@ -38,6 +39,7 @@ interface ApiTicket {
   source: string;
   serviceId: string;
   createdAt: string;
+  calledAt?: string | null;
 }
 
 interface ApiService {
@@ -71,6 +73,7 @@ interface Row {
   source: string;
   serviceId?: string;
   waitedMin: number;
+  calledMin?: number;
 }
 
 interface Activity {
@@ -214,6 +217,9 @@ function TicketRow({ t, table, orders, actions }: { t: Row; table: string; order
         <Badge state={t.state} />
         <span>{[table, SOURCE_LABEL[t.source] ?? t.source].filter(Boolean).join(" · ")}</span>
         <span className={t.waitedMin >= LATE_MIN ? "late" : undefined}>⏱ {t.waitedMin} นาทีตั้งแต่เข้าคิว</span>
+        {t.state === "CALLED" && t.calledMin !== undefined && (
+          <span className={t.calledMin >= RECALL_HINT_MIN ? "late" : undefined}>📢 เรียกล่าสุด {t.calledMin} นาทีที่แล้ว</span>
+        )}
       </div>
       {orders && <div className="torder">{orders}</div>}
       {actions && <div className="tact">{actions}</div>}
@@ -262,6 +268,7 @@ export default function DashboardPage() {
       source: t.source,
       serviceId: t.serviceId,
       waitedMin: minutesSince(t.createdAt),
+      calledMin: t.calledAt ? minutesSince(t.calledAt) : undefined,
     });
     setStats(statsJson as Record<string, number>);
     setWaiting((waitingJson as ApiTicket[]).map(toRow));
@@ -314,7 +321,9 @@ export default function DashboardPage() {
       const t = payload.ticket;
       if (t) {
         const state = STATE_LABEL[t.state] ?? { label: t.state, color: "#475569" };
-        log(payload.type === "created" ? `🎟️ คิวใหม่ ${t.number}` : `${t.number} → ${state.label}`, state.color);
+        const text =
+          payload.type === "created" ? `🎟️ คิวใหม่ ${t.number}` : payload.type === "recalled" ? `🔁 เรียกซ้ำ ${t.number}` : `${t.number} → ${state.label}`;
+        log(text, state.color);
       }
       reload();
     });
@@ -360,6 +369,8 @@ export default function DashboardPage() {
 
   const changeState = (ticketId: string, state: string) =>
     run(() => api(`/api/queues/tickets/${ticketId}/state/${state}`, { method: "PATCH" }));
+
+  const recall = (ticketId: string) => run(() => api(`/api/queues/tickets/${ticketId}/recall`, { method: "POST" }));
 
   const cancelTicket = (t: Row) => {
     if (confirm(`ยกเลิกคิว ${t.number}?`)) void run(() => api(`/api/queues/tickets/${t.id}/cancel`, { method: "POST" }));
@@ -461,6 +472,7 @@ export default function DashboardPage() {
                     actions={
                       t.state === "CALLED" ? (
                         <>
+                          <ActionButton label="🔁 เรียกซ้ำ" color="#D97706" disabled={busy} onClick={() => recall(t.id)} />
                           <ActionButton label="✅ นั่งแล้ว" color="#2563EB" disabled={busy} onClick={() => changeState(t.id, "serving")} />
                           <ActionButton label="ไม่มา" color="#9CA3AF" disabled={busy} onClick={() => changeState(t.id, "no_show")} />
                         </>

@@ -1,4 +1,4 @@
-import { ConflictException } from "@nestjs/common";
+import { BadRequestException, ConflictException } from "@nestjs/common";
 import { QueuesService } from "./queues.service";
 import { MemoryQueueStore } from "./store/memory-queue-store";
 
@@ -6,12 +6,14 @@ import { MemoryQueueStore } from "./store/memory-queue-store";
 describe("QueuesService multi-device", () => {
   const make = () => {
     const alerts: string[] = [];
+    const calls: string[] = [];
+    const store = new MemoryQueueStore();
     const svc = new QueuesService(
-      new MemoryQueueStore(),
-      { emitQueueUpdate: () => undefined, emitCall: () => undefined } as never,
+      store,
+      { emitQueueUpdate: () => undefined, emitCall: (_b: string, p: { number: string }) => void calls.push(p.number) } as never,
       { sendCalledAlert: async (_u: string, n: string) => void alerts.push(n) } as never,
     );
-    return { svc, alerts };
+    return { svc, store, alerts, calls };
   };
 
   it("same ticket called from two devices → one wins, other gets 409", async () => {
@@ -28,5 +30,17 @@ describe("QueuesService multi-device", () => {
     const [a, b] = await Promise.all([svc.callNext("demo", "c1", "s1"), svc.callNext("demo", "c2", "s2")]);
     expect(a.id).not.toBe(b.id);
     expect([a.state, b.state]).toEqual(["CALLED", "CALLED"]);
+  });
+
+  it("recall: blocked within cooldown, re-announces after, only for CALLED", async () => {
+    const { svc, store, calls } = make();
+    const [first, second] = await svc.waitingList("demo");
+    await svc.changeState(first.id, "called");
+    await expect(svc.recall(first.id)).rejects.toBeInstanceOf(ConflictException);
+    await store.updateTicket(first.id, { calledAt: new Date(Date.now() - 60_000) });
+    const recalled = await svc.recall(first.id);
+    expect(recalled.state).toBe("CALLED");
+    expect(calls).toEqual([first.number, first.number]);
+    await expect(svc.recall(second.id)).rejects.toBeInstanceOf(BadRequestException);
   });
 });

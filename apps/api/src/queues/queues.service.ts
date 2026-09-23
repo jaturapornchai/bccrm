@@ -26,6 +26,8 @@ export function queueDateOf(date = new Date()): Date {
   return new Date(bangkok.getFullYear(), bangkok.getMonth(), bangkok.getDate());
 }
 
+const RECALL_COOLDOWN_MS = 20_000;
+
 @Injectable()
 export class QueuesService {
   constructor(
@@ -152,6 +154,23 @@ export class QueuesService {
     this.gateway.emitQueueUpdate(updated.branchId, { type: "state_changed", ticket: updated });
     // ทุกทางที่เรียกคิว (call-next / ปุ่มเรียกรายคิว / MCP) แจ้งเตือนที่เดียวตรงนี้
     if (target === "called") this.notifyCalled(updated);
+    return updated;
+  }
+
+  /** ลูกค้ายังไม่มา → เรียกซ้ำ: กลับขึ้นเป็นคิวที่กำลังเรียกล่าสุด + เสียงบนบัตรคิว + LINE อีกรอบ */
+  async recall(ticketId: string): Promise<TicketRecord> {
+    const ticket = await this.store.findTicket(ticketId);
+    if (!ticket) throw new NotFoundException("ไม่พบตั๋วคิวนี้");
+    if (ticket.state !== "CALLED") throw new BadRequestException("เรียกซ้ำได้เฉพาะคิวที่เรียกแล้วแต่ลูกค้ายังไม่มา");
+    const sinceMs = Date.now() - (ticket.calledAt ? new Date(ticket.calledAt).getTime() : 0);
+    // ponytail: cooldown เช็คจากค่าที่อ่านมา (ไม่ atomic) กันกดซ้ำ/หลายเครื่อง — กดพร้อมกันเสี้ยววินาทียังส่ง LINE ซ้ำได้
+    if (sinceMs < RECALL_COOLDOWN_MS) {
+      throw new ConflictException(`เพิ่งเรียกคิว ${ticket.number} ไปเมื่อ ${Math.ceil(sinceMs / 1000)} วินาทีที่แล้ว`);
+    }
+    const updated = await this.store.updateTicket(ticketId, { calledAt: new Date() }, "CALLED");
+    if (!updated) throw new ConflictException("คิวนี้ถูกพนักงานเครื่องอื่นเปลี่ยนสถานะไปแล้ว");
+    this.gateway.emitQueueUpdate(updated.branchId, { type: "recalled", ticket: updated });
+    this.notifyCalled(updated);
     return updated;
   }
 
