@@ -32,7 +32,7 @@ export async function initLiff(): Promise<LiffUserData | null> {
   try {
     await liff.init({ liffId });
     if (!liff.isLoggedIn()) {
-      if (!liff.isInClient() && typeof window !== "undefined" && window.location.hostname === "localhost") {
+      if (!liff.isInClient() && typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.search.includes("dev=1"))) {
         return getDevProfile();
       }
       liff.login();

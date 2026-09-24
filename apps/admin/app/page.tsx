@@ -147,6 +147,14 @@ export default function AdminDashboard() {
   const [activity, setActivity] = useState<Activity[]>([]);
   const [now, setNow] = useState(() => new Date());
 
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const p = new URLSearchParams(window.location.search);
+      const t = p.get("tab");
+      if (t === "kds" || t === "insights") setActiveTab(t);
+    }
+  }, []);
+
   const loadFromApi = useCallback(async () => {
     const paths = [
       `/api/queues/stats/today?branchId=${BRANCH_ID}`,

@@ -163,7 +163,14 @@ function playCallChime() {
 export default function App() {
   const [profile, setProfile] = useState<LiffProfile>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TabType>("order");
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    if (typeof window !== "undefined") {
+      const p = new URLSearchParams(window.location.search);
+      const t = p.get("tab") as TabType;
+      if (t && ["order", "book", "ticket", "chat", "profile"].includes(t)) return t;
+    }
+    return "order";
+  });
 
   // Table Services & Queue Booking
   const [services, setServices] = useState<ServiceItem[]>([]);

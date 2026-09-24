@@ -32,6 +32,29 @@
 
 ---
 
+## 🖼️ ภาพหน้าจอระบบจริง (Live Screenshots)
+
+### 🧑‍🍳 ฝั่งร้านอาหาร (Staff Dashboard & KDS)
+
+| 🎟️ หน้าจอเรียกคิว & จัดการโต๊ะหน้าร้าน | 🍳 หน้าจอครัว (Kitchen Display System - KDS) |
+|---|---|
+| ![Staff Dashboard](docs/screenshots/01-staff-dashboard-queue.png) | ![Kitchen KDS](docs/screenshots/02-kitchen-kds.png) |
+| *ปุ่มเรียกคิว Hero Button, ตัวเลขอัปเดตสด, แยก 4 โซนโต๊ะ, พรีวิวอาหารที่สั่ง* | *นับเวลาถอยหลัง (เขียว/ส้ม/แดง), แตะขีดฆ่าจาน, ปุ่มพร้อมเสิร์ฟ/เสิร์ฟแล้ว* |
+
+| 📊 หน้าจอสรุปยอดขาย & เมนูยอดนิยม | 💬 LINE Rich Menu หน้าร้าน |
+|---|---|
+| ![Staff Insights](docs/screenshots/04-staff-insights.png) | ![LINE Rich Menu](docs/rich-menu/rich_menu_1200x405.png) |
+| *กราฟเมนูขายดีประจำวัน, สรุปรายการเตรียมของครัว, ไทม์ไลน์สด* | *เมนูกดใน LINE: สั่งอาหารล่วงหน้า, จองคิว, บัตรคิว, คุยกับ AI* |
+
+### 📱 ฝั่งลูกค้าใน LINE (Customer LIFF Web App)
+
+| 🍽️ สั่งอาหารล่วงหน้า (33 เมนูจริง) | 📋 จองโต๊ะอาหารแยก 4 โซน | 💬 แชทกับ AI น้องบีซี |
+|---|---|---|
+| ![LIFF Menu](docs/screenshots/03-customer-liff-menu.png) | ![LIFF Booking](docs/screenshots/05-customer-liff-book.png) | ![LIFF Chat](docs/screenshots/06-customer-liff-chat.png) |
+| *เลือกความเผ็ด, ซอส, ความหวาน พร้อม JEV AI แนะนำ* | *โต๊ะ 1-2 ท่าน, 3-4 ท่าน, โต๊ะใหญ่, สั่งกลับบ้าน* | *ตอบคำถามเมนู, เช็คสถานะคิว, แนะนำของกิน 24 ชม.* |
+
+---
+
 ## 🧭 ระบบทำงานอย่างไร (อ่านจบใน 1 นาที)
 
 ทั้งระบบเป็นแบบ **สั่งล่วงหน้า (Preorder)**: ลูกค้าสั่งก่อนมาถึงร้าน ครัวจะได้เตรียมไว้ พอลูกค้ามาถึงก็ได้ทานเลย
